@@ -163,7 +163,7 @@ GET  /v1/health                      no auth  → { ok, version }
 POST /v1/pair                        pairing code → token (extension only)
 POST /v1/suggestions                 create suggestion (task | task_update | note)
 GET  /v1/suggestions?status=pending
-GET  /v1/tasks?query=&project=&status=&due_before=&limit=
+GET  /v1/tasks?q=&projectId=&status=a,b&dueFrom=&dueTo=&limit=
 GET  /v1/tasks/:id
 GET  /v1/projects
 GET  /v1/code-projects/resolve?dir=  → project + open tasks for that repo

@@ -6,3 +6,4 @@ apps/desktop/src-tauri/gen/schemas/
 .env
 .env.*
 .DS_Store
+.taste-skill/

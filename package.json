@@ -3,12 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "dev": "npm run tauri dev -w apps/desktop",
     "build": "npm run tauri build -w apps/desktop",
-    "typecheck": "npm exec -w apps/desktop -- tsc --noEmit",
+    "typecheck": "npm exec -w apps/desktop -- tsc --noEmit && npm run typecheck -w packages/core",
+    "test": "npm test -w packages/core && npm test -w apps/desktop --if-present",
     "check:rust": "cd apps/desktop/src-tauri && cargo clippy && cargo test"
   }
 }

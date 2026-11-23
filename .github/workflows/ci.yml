@@ -29,6 +29,7 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+      - run: npm test
       - name: Build frontend (needed by tauri::generate_context!)
         run: npm run build -w apps/desktop
       - name: Rust fmt

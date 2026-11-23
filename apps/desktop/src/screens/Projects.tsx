@@ -1,0 +1,87 @@
+import { useState } from "react";
+import { Link } from "react-router";
+import type { Project } from "@tether/core";
+import { api, errorMessage } from "../lib/api";
+import { useAction, useProjects } from "../lib/queries";
+
+/** Muted, distinguishable dots; colour is identity only, never data. */
+export const PROJECT_COLORS = ["#1d5fbf", "#2e7d32", "#b45309", "#0f766e", "#be123c", "#4d4d4d", "#8a8a8a"];
+
+export function ProjectForm({ onDone, submitLabel = "Add project" }: { onDone?: (p: Project) => void; submitLabel?: string }) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(PROJECT_COLORS[0]);
+  const create = useAction(() => api.createProject({ name, color }));
+  return (
+    <form className="flex flex-wrap items-end gap-3"
+      onSubmit={(e) => { e.preventDefault(); if (name.trim()) create.mutate(undefined, { onSuccess: (p) => { setName(""); onDone?.(p); } }); }}>
+      <div className="min-w-[220px] flex-1">
+        <label className="label" htmlFor="p-name">Project name</label>
+        <input id="p-name" className="field" value={name} onChange={(e) => { setName(e.target.value); create.reset(); }} placeholder="e.g. Website relaunch" />
+      </div>
+      <fieldset>
+        <legend className="label">Colour</legend>
+        <div className="flex h-9 items-center gap-1.5">
+          {PROJECT_COLORS.map((c) => (
+            <button key={c} type="button" aria-label={`Colour ${c}`} aria-pressed={color === c} onClick={() => setColor(c)}
+              className={`size-5 rounded-full ${color === c ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : ""}`} style={{ background: c }} />
+          ))}
+        </div>
+      </fieldset>
+      <button className="btn btn-primary" disabled={!name.trim() || create.isPending}>{submitLabel}</button>
+      {create.isError && <p className="w-full text-negative">{errorMessage(create.error)}</p>}
+    </form>
+  );
+}
+
+function Row({ p }: { p: Project }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(p.name);
+  const rename = useAction(() => api.updateProject(p.id, { name, color: p.color, description: p.description }));
+  const archive = useAction(() => api.archiveProject(p.id, !p.archivedAt));
+  const remove = useAction(() => api.deleteProject(p.id));
+  return (
+    <li className="flex min-h-12 items-center gap-3 border-b border-rule px-2 last:border-0">
+      <span className="size-2.5 flex-none rounded-full" style={{ background: p.color ?? "var(--faint)" }} />
+      {editing ? (
+        <form className="flex flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); rename.mutate(undefined, { onSuccess: () => setEditing(false) }); }}>
+          <label htmlFor={`r-${p.id}`} className="sr-only">Project name</label>
+          <input id={`r-${p.id}`} className="field h-8" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <button className="btn h-8">Save</button>
+          <button type="button" className="btn btn-ghost h-8" onClick={() => { setEditing(false); setName(p.name); }}>Cancel</button>
+        </form>
+      ) : (
+        <Link to={`/projects/${p.id}`} className={`flex-1 truncate ${p.archivedAt ? "text-muted" : "font-medium"}`}>{p.name}</Link>
+      )}
+      {p.archivedAt && <span className="pill">Archived</span>}
+      <span className="num w-24 text-right text-muted">{p.openTasks} open</span>
+      {!editing && (
+        <div className="flex gap-1">
+          <button className="btn btn-ghost h-8" onClick={() => setEditing(true)}>Rename</button>
+          <button className="btn btn-ghost h-8" onClick={() => archive.mutate(undefined)}>{p.archivedAt ? "Restore" : "Archive"}</button>
+          <button className="btn btn-ghost btn-danger h-8"
+            onClick={() => confirm(`Delete “${p.name}”? Its ${p.openTasks} open tasks are kept and become unassigned.`) && remove.mutate(undefined)}>
+            Delete
+          </button>
+        </div>
+      )}
+      {(rename.isError || remove.isError) && <span className="text-negative">{errorMessage(rename.error ?? remove.error)}</span>}
+    </li>
+  );
+}
+
+export function ProjectsScreen() {
+  const projects = useProjects(true);
+  const list = projects.data ?? [];
+  const active = list.filter((p) => !p.archivedAt);
+  return (
+    <div className="mx-auto max-w-[960px] px-6 py-6 lg:px-8">
+      <h1 className="text-2xl font-semibold tracking-[-0.01em]">Projects</h1>
+      <p className="mt-1 text-muted"><span className="num">{active.length}</span> active · <span className="num">{list.length - active.length}</span> archived</p>
+      <div className="mt-5 rounded-[8px] border border-line bg-surface p-4"><ProjectForm /></div>
+      <ul className="mt-4 rounded-[8px] border border-line bg-surface px-2" aria-label="Projects">
+        {list.length === 0 && <li className="p-3 text-muted">No projects yet. Add your first one above.</li>}
+        {list.map((p) => <Row key={p.id} p={p} />)}
+      </ul>
+    </div>
+  );
+}
