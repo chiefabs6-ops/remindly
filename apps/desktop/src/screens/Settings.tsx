@@ -175,7 +175,7 @@ function Backups() {
   const dirty = b.autoDaily !== cfg.data?.autoDaily || b.dir !== cfg.data?.dir || b.keepDaily !== cfg.data?.keepDaily || b.keepWeekly !== cfg.data?.keepWeekly;
   const list = files.data ?? [];
   const kb = (n: number) => `${Math.max(1, Math.round(n / 1024)).toLocaleString("en-IE")} KB`;
-  const err = save.error ?? now.error ?? restore.error ?? exp.error;
+  const err = save.error ?? now.error ?? restore.error ?? exp.error ?? health.error;
 
   return (
     <div className="space-y-3">
@@ -210,6 +210,9 @@ function Backups() {
             <input id="b-weeks" type="number" min={0} max={52} className="field" value={b.keepWeekly} onChange={(e) => setB({ ...b, keepWeekly: Number(e.target.value) || 0 })} />
           </div>
         </div>
+        {cfg.data?.lastError && (
+          <p className="text-negative">The last automatic backup failed: {cfg.data.lastError}. It tries again tomorrow; use Back up now to retry.</p>
+        )}
         <div className="pt-2"><button className="btn" disabled={!dirty || save.isPending}>Save backup settings</button></div>
       </form>
       <div className="pt-2">
@@ -217,8 +220,8 @@ function Backups() {
         {list.length === 0 ? (
           <p className="rounded-[8px] border border-dashed border-line px-3 py-2.5 text-muted">No backups yet.</p>
         ) : (
-          <ul className="rounded-[8px] border border-line">
-            {list.slice(0, 8).map((f) => (
+          <ul className="max-h-[320px] overflow-y-auto rounded-[8px] border border-line">
+            {list.map((f) => (
               <li key={f.name} className="flex items-center gap-3 border-b border-rule px-3 py-2 last:border-0">
                 <span className="num flex-1">{f.takenAt}{f.name.includes("-auto") ? " · automatic" : f.name.includes("before-restore") ? " · before a restore" : ""}</span>
                 <span className="num w-20 text-right text-xs text-muted">{kb(f.bytes)}</span>

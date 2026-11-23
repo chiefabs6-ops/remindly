@@ -12,6 +12,8 @@ const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
 
 pub struct Db {
     conn: Mutex<Connection>,
+    /// The database file (None for in-memory test databases).
+    path: Option<std::path::PathBuf>,
 }
 
 impl Db {
@@ -21,6 +23,7 @@ impl Db {
         migrate(&mut conn)?;
         Ok(Db {
             conn: Mutex::new(conn),
+            path: Some(path.to_path_buf()),
         })
     }
 
@@ -30,6 +33,7 @@ impl Db {
         migrate(&mut conn)?;
         Ok(Db {
             conn: Mutex::new(conn),
+            path: None,
         })
     }
 
@@ -37,6 +41,23 @@ impl Db {
         // A panic while holding the lock cannot leave SQLite half-written (each write runs in a
         // transaction), so recover the guard instead of propagating the poison.
         self.conn.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Copy the raw database file (and its WAL) byte for byte while holding the lock. Used as the
+    /// safety copy when the database is too damaged for `VACUUM INTO`.
+    pub fn raw_copy(&self, dest: &Path) -> AppResult<()> {
+        let Some(src) = &self.path else {
+            return Err(AppError::invalid("in-memory database has no file"));
+        };
+        let conn = self.lock();
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(FULL)");
+        std::fs::copy(src, dest)?;
+        let wal = src.with_extension("db-wal");
+        if wal.exists() {
+            std::fs::copy(&wal, dest.with_extension("db-wal"))?;
+        }
+        drop(conn);
+        Ok(())
     }
 
     /// Replace the whole database with the contents of another SQLite file (online backup API).

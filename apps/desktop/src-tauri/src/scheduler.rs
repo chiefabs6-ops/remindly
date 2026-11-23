@@ -44,22 +44,30 @@ pub fn start(app: AppHandle, state: AppState) {
 /// Daily automatic backup, only when the user switched it on.
 fn auto_backup(app: &AppHandle, state: &AppState) {
     let today = Local::now().format("%Y-%m-%d").to_string();
-    let Ok(mut cfg) = state.db.read(crate::backup::BackupSettings::load) else {
+    let Ok(cfg) = state.db.read(crate::backup::BackupSettings::load) else {
         return;
     };
     if !cfg.auto_daily || cfg.last_auto.as_deref() == Some(today.as_str()) {
         return;
     }
     let folder = cfg.folder(&crate::commands::default_backup_dir(app));
-    match crate::backup::backup_now(&state.db, &folder, "auto") {
+    let outcome = crate::backup::backup_now(&state.db, &folder, "auto");
+    match &outcome {
         Ok(b) => {
             log::info!("automatic backup {}", b.name);
             let _ = crate::backup::prune(&folder, cfg.keep_daily, cfg.keep_weekly);
-            cfg.last_auto = Some(today);
-            let _ = state.db.write(|c| cfg.save(c));
         }
+        // One attempt per day: a lasting problem (full disk, damaged database) must not retry
+        // every 30 s. The error is shown in Settings > Backups.
         Err(e) => log::warn!("automatic backup failed: {e}"),
     }
+    // Re-read so a settings change made during the backup is not overwritten.
+    let _ = state.db.write(|c| {
+        let mut fresh = crate::backup::BackupSettings::load(c)?;
+        fresh.last_auto = Some(today.clone());
+        fresh.last_error = outcome.as_ref().err().map(|e| e.to_string());
+        fresh.save(c)
+    });
 }
 
 fn run_once(app: &AppHandle, state: &AppState) {

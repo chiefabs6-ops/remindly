@@ -31,8 +31,10 @@ pub struct BackupSettings {
     pub dir: String,
     pub keep_daily: usize,
     pub keep_weekly: usize,
-    /// Local date of the last automatic backup (YYYY-MM-DD).
+    /// Local date of the last automatic backup attempt (YYYY-MM-DD).
     pub last_auto: Option<String>,
+    /// Why the last automatic backup failed, if it did.
+    pub last_error: Option<String>,
 }
 
 impl Default for BackupSettings {
@@ -43,6 +45,7 @@ impl Default for BackupSettings {
             keep_daily: 7,
             keep_weekly: 4,
             last_auto: None,
+            last_error: None,
         }
     }
 }
@@ -99,18 +102,25 @@ pub fn backup_now(db: &Db, folder: &Path, label: &str) -> AppResult<BackupFile> 
             "a backup with this name already exists; try again in a second".into(),
         ));
     }
-    db.read(|c| {
+    let written = db.read(|c| {
         c.execute("VACUUM INTO ?1", [path.to_string_lossy().as_ref()])?;
         Ok(())
-    })?;
-    let check = verify(&path)?;
-    if check != "ok" {
-        let _ = fs::remove_file(&path);
-        return Err(AppError::invalid(format!(
-            "backup failed its integrity check: {check}"
-        )));
+    });
+    // Never leave a half-written or empty file that would look restorable.
+    let checked = written.and_then(|_| verify(&path));
+    match checked {
+        Ok(r) if r == "ok" => describe(&path),
+        Ok(r) => {
+            let _ = fs::remove_file(&path);
+            Err(AppError::invalid(format!(
+                "backup failed its integrity check: {r}"
+            )))
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&path);
+            Err(e)
+        }
     }
-    describe(&path)
 }
 
 fn describe(path: &Path) -> AppResult<BackupFile> {
@@ -147,13 +157,29 @@ pub fn list(folder: &Path) -> AppResult<Vec<BackupFile>> {
     Ok(out)
 }
 
-/// `PRAGMA integrity_check` on a backup file opened read-only; "ok" when sound.
+/// Checks a backup file: SQLite says it is sound AND it really holds Tether data (an empty or
+/// foreign file also passes `integrity_check`, so that alone is not enough). "ok" when usable.
 pub fn verify(path: &Path) -> AppResult<String> {
+    if fs::metadata(path)?.len() == 0 {
+        return Ok("empty file".into());
+    }
     let c = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let r: String = c.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+    if r != "ok" {
+        return Ok(r);
+    }
+    let tables: i64 = c.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tasks', 'projects', 'settings')",
+        [],
+        |r| r.get(0),
+    )?;
+    let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if tables < 3 || version < 1 {
+        return Ok("not a Tether database".into());
+    }
     Ok(r)
 }
 
@@ -202,7 +228,11 @@ pub fn prune(folder: &Path, keep_daily: usize, keep_weekly: usize) -> AppResult<
 
 /// Replace the live database with a backup. The current data is backed up first (`-before-restore`).
 pub fn restore(db: &Db, folder: &Path, name: &str) -> AppResult<BackupFile> {
-    if name.contains(['/', '\\']) || !name.starts_with(PREFIX) || !name.ends_with(EXT) {
+    if name.contains(['/', '\\', ':'])
+        || name.contains("..")
+        || !name.starts_with(PREFIX)
+        || !name.ends_with(EXT)
+    {
         return Err(AppError::invalid("unknown backup"));
     }
     let path = folder.join(name);
@@ -224,8 +254,48 @@ pub fn restore(db: &Db, folder: &Path, name: &str) -> AppResult<BackupFile> {
         ));
     }
     drop(src);
-    let safety = backup_now(db, folder, "before-restore")?;
+    // Keep the current data first. If the live database is too damaged to copy cleanly (the case
+    // where you most need a restore), fall back to a raw byte copy of the file.
+    let safety = match backup_now(db, folder, "before-restore") {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("clean safety copy failed ({e}); taking a raw copy instead");
+            let raw = folder.join(format!(
+                "{PREFIX}{}-before-restore-raw{EXT}",
+                Local::now().format("%Y%m%d-%H%M%S")
+            ));
+            db.raw_copy(&raw)?;
+            BackupFile {
+                name: raw
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                path: raw.display().to_string(),
+                bytes: fs::metadata(&raw).map(|m| m.len()).unwrap_or(0),
+                taken_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            }
+        }
+    };
+    // Settings that belong to this PC survive the restore (backup folder, paired browser).
+    let keep: Vec<(String, Value)> = db
+        .read(|c| {
+            let mut v = Vec::new();
+            for k in [SETTINGS_KEY, ALLOWED_ORIGINS_KEY] {
+                if let Some(val) = settings::get(c, k)? {
+                    v.push((k.to_string(), val));
+                }
+            }
+            Ok(v)
+        })
+        .unwrap_or_default();
     db.restore_from(&path)?;
+    db.write(|c| {
+        for (k, v) in &keep {
+            settings::set(c, k, v)?;
+        }
+        Ok(())
+    })?;
     log::info!("restored {name}; previous data saved as {}", safety.name);
     Ok(safety)
 }
@@ -374,7 +444,7 @@ mod tests {
             "tether-20261123-090000-auto.db",
             "tether-20261122-090000-auto.db",
             "tether-20261121-090000-auto.db",
-            "tether-20261121-180000-auto.db", // second on a kept day -> removed
+            "tether-20261121-180000-auto.db", // newest of a kept day -> kept; the 09:00 one goes
             "tether-20261114-090000-auto.db",
             "tether-20261107-090000-auto.db",
             "tether-20261031-090000-auto.db",
@@ -415,6 +485,100 @@ mod tests {
             .map(|s| s["key"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(keys, ["theme"]);
+    }
+
+    #[test]
+    fn empty_or_foreign_files_are_not_backups() {
+        let folder = tmp("empty");
+        let db = Db::open_in_memory().unwrap();
+        fs::write(folder.join("tether-20260101-000000.db"), b"").unwrap();
+        assert_eq!(
+            verify(&folder.join("tether-20260101-000000.db")).unwrap(),
+            "empty file"
+        );
+        assert!(restore(&db, &folder, "tether-20260101-000000.db").is_err());
+        let foreign = folder.join("tether-20260102-000000.db");
+        Connection::open(&foreign)
+            .unwrap()
+            .execute_batch("CREATE TABLE x(a)")
+            .unwrap();
+        assert_eq!(verify(&foreign).unwrap(), "not a Tether database");
+        let _ = fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn refuses_a_backup_from_a_newer_version() {
+        let folder = tmp("newer");
+        let data = tmp("newer-data");
+        let db = Db::open(&data.join("t.db")).unwrap();
+        let b = backup_now(&db, &folder, "").unwrap();
+        Connection::open(&b.path)
+            .unwrap()
+            .pragma_update(None, "user_version", 999)
+            .unwrap();
+        let e = restore(&db, &folder, &b.name).unwrap_err();
+        assert!(e.to_string().contains("newer version"), "{e}");
+        drop(db);
+        let _ = fs::remove_dir_all(&folder);
+        let _ = fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn failed_backup_leaves_no_file() {
+        let folder = tmp("fail");
+        let db = Db::open_in_memory().unwrap();
+        // A folder path where the file should be makes VACUUM INTO fail.
+        let blocked = folder.join("blocked");
+        fs::create_dir_all(&blocked).unwrap();
+        let before = fs::read_dir(&blocked).unwrap().count();
+        let r = backup_now(&db, &blocked.join("missing-subdir").join("x"), "");
+        // Either it failed or it produced a verified file; never a broken leftover.
+        if r.is_err() {
+            assert_eq!(fs::read_dir(&blocked).unwrap().count(), before);
+        }
+        let _ = fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn restore_keeps_this_pcs_settings() {
+        let data = tmp("keep");
+        let folder = tmp("keep-b");
+        let db = Db::open(&data.join("t.db")).unwrap();
+        db.write(|c| settings::set(c, ALLOWED_ORIGINS_KEY, &serde_json::json!(["old"])))
+            .unwrap();
+        let b = backup_now(&db, &folder, "").unwrap();
+        db.write(|c| {
+            settings::set(
+                c,
+                ALLOWED_ORIGINS_KEY,
+                &serde_json::json!(["chrome-extension://now"]),
+            )
+        })
+        .unwrap();
+        db.write(|c| {
+            BackupSettings {
+                auto_daily: true,
+                ..Default::default()
+            }
+            .save(c)
+        })
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        restore(&db, &folder, &b.name).unwrap();
+        assert_eq!(
+            db.read(|c| settings::get(c, ALLOWED_ORIGINS_KEY)).unwrap(),
+            Some(serde_json::json!(["chrome-extension://now"]))
+        );
+        assert!(db.read(BackupSettings::load).unwrap().auto_daily);
+        drop(db);
+        let _ = fs::remove_dir_all(&data);
+        let _ = fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn automatic_backups_are_off_by_default() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(!db.read(BackupSettings::load).unwrap().auto_daily);
     }
 
     #[test]

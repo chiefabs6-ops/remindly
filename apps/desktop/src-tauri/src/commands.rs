@@ -391,13 +391,20 @@ pub fn backup_settings_set(
         return Err(AppError::invalid("keep 1-60 daily and 0-52 weekly backups"));
     }
     let dir = value.dir.trim();
+    if dir.starts_with("\\\\") {
+        return Err(AppError::invalid(
+            "backups stay on this PC: pick a local folder, not a network share",
+        ));
+    }
     if !dir.is_empty() && !std::path::Path::new(dir).is_absolute() {
         return Err(AppError::invalid(
             "the backup folder must be a full path, e.g. D:\\Backups\\Tether",
         ));
     }
     let mut v = value.clone();
-    v.last_auto = s.db.read(crate::backup::BackupSettings::load)?.last_auto;
+    let stored = s.db.read(crate::backup::BackupSettings::load)?;
+    v.last_auto = stored.last_auto;
+    v.last_error = stored.last_error;
     s.db.write(|c| v.save(c))?;
     backup_settings_get(app, s)
 }
@@ -446,13 +453,18 @@ pub fn db_health(s: Db) -> AppResult<String> {
 /// Show a backup or export in Explorer (folders under the app's own backup/export locations only).
 #[tauri::command(async)]
 pub fn reveal_path(app: tauri::AppHandle, s: Db, path: String) -> AppResult<()> {
-    let p = std::path::PathBuf::from(&path);
-    let backups = backup_folder(&app, &s)?;
-    let exports = default_backup_dir(&app).with_file_name("Exports");
-    if !(p.starts_with(&backups) || p.starts_with(&exports)) {
-        return Err(AppError::invalid(
-            "only backup and export files can be shown",
-        ));
+    let bad = || AppError::invalid("only backup and export files can be shown");
+    let p = std::fs::canonicalize(&path).map_err(|_| bad())?;
+    let backups = std::fs::canonicalize(backup_folder(&app, &s)?).ok();
+    let exports = std::fs::canonicalize(default_backup_dir(&app).with_file_name("Exports")).ok();
+    let parent = p.parent().map(|x| x.to_path_buf());
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let in_place = parent.is_some() && (parent == backups || parent == exports);
+    let named = name.starts_with("tether-")
+        && (name.ends_with(".db") || name.ends_with(".json"))
+        && !name.contains(',');
+    if !p.is_file() || !in_place || !named {
+        return Err(bad());
     }
     std::process::Command::new("explorer.exe")
         .arg(format!("/select,{}", p.display()))

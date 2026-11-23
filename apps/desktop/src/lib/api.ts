@@ -50,6 +50,7 @@ export interface BackupSettings {
   keepDaily: number;
   keepWeekly: number;
   lastAuto: string | null;
+  lastError?: string | null;
   /** Resolved folder (read-only). */
   folder?: string;
 }
