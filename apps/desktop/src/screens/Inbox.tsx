@@ -154,6 +154,7 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
         )}
       </div>
       {ai.isError && <p className="mb-3 text-negative">{errorMessage(ai.error)}</p>}
+      {ai.isSuccess && <p className="mb-3 rounded-[8px] bg-[var(--pill-today-bg)] px-3 py-2 text-[var(--pill-today-ink)]">The fields below were filled by local AI. Check them before approving.</p>}
 
       {s.possibleDuplicateOf && (
         <p className="mb-4 flex items-start gap-2 rounded-[8px] bg-[var(--pill-warning-bg)] px-3 py-2 text-[var(--pill-warning-ink)]">
@@ -302,7 +303,7 @@ export function InboxScreen() {
           </div>
           {openTask && (
             <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-              <TaskPanel id={openTask} projects={ps} onClose={() => setParams({ tab: "unsorted" })} onOpen={(id) => setParams({ tab: "unsorted", task: id })} />
+              <TaskPanel key={openTask} id={openTask} projects={ps} onClose={() => setParams({ tab: "unsorted" })} onOpen={(id) => setParams({ tab: "unsorted", task: id })} />
             </div>
           )}
         </div>

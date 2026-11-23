@@ -68,7 +68,11 @@ export function TaskPanel({ id, projects, onClose, onOpen }: {
   const [steps, setSteps] = useState<{ text: string; on: boolean }[] | null>(null);
   const breakdown = useAction(() => api.aiBreakdown(id));
   const addSteps = useAction(async (titles: string[]) => {
-    for (const title of titles) await api.createTask({ title }, id);
+    for (const title of titles) {
+      await api.createTask({ title }, id);
+      // Drop each step once added, so a retry after a failure never duplicates.
+      setSteps((cur) => cur?.filter((x) => x.text !== title) ?? null);
+    }
   });
 
   if (q.isError) {

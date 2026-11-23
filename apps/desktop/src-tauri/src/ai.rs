@@ -71,9 +71,15 @@ pub struct AiStatus {
     pub model_installed: bool,
 }
 
+/// Direct connection to Ollama on this PC: never through a proxy from HTTP(S)_PROXY/ALL_PROXY
+/// (that would send task text off the machine), never follow redirects, and let us read error
+/// bodies ourselves.
 fn agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
+        .proxy(None)
+        .max_redirects(0)
+        .http_status_as_error(false)
         .build()
         .into()
 }
@@ -83,6 +89,16 @@ fn base(cfg: &AiSettings) -> String {
 }
 
 pub fn status(cfg: &AiSettings) -> AiStatus {
+    // Off, or an address that is not this PC (e.g. from an old backup): do not contact anything.
+    if !cfg.enabled || cfg.validate().is_err() {
+        return AiStatus {
+            enabled: cfg.enabled,
+            reachable: false,
+            version: None,
+            models: vec![],
+            model_installed: false,
+        };
+    }
     let a = agent(Duration::from_secs(3));
     let version = a
         .get(format!("{}/api/version", base(cfg)))
@@ -109,7 +125,8 @@ pub fn status(cfg: &AiSettings) -> AiStatus {
         reachable: version.is_some(),
         model_installed: models
             .iter()
-            .any(|m| m == want || m.split(':').next() == Some(want)),
+            // Ollama reads a bare name as ":latest".
+            .any(|m| m == want || (!want.contains(':') && *m == format!("{want}:latest"))),
         version,
         models,
     }
@@ -133,6 +150,7 @@ fn chat<T: DeserializeOwned>(
         "stream": false,
         "format": schema,
         "keep_alive": "2m",          // free the RAM soon after use
+        "think": false,              // reasoning models (qwen3) answer directly; others ignore it
         "options": { "temperature": 0, "num_ctx": 4096 },
         "messages": [
             { "role": "system", "content": format!("{system}\nReply with JSON only, matching this schema: {schema}") },
@@ -143,19 +161,34 @@ fn chat<T: DeserializeOwned>(
     let mut res = agent(Duration::from_secs(120))
         .post(format!("{}/api/chat", base(cfg)))
         .send_json(&body)
-        .map_err(|e| match e {
-            ureq::Error::StatusCode(404) => AppError::invalid(format!(
+        .map_err(|e| {
+            log::warn!("ollama request failed: {e}");
+            AppError::invalid("Ollama is not running on this PC. Start Ollama and try again.")
+        })?;
+    let code = res.status().as_u16();
+    if code != 200 {
+        let msg = res
+            .body_mut()
+            .read_json::<Value>()
+            .ok()
+            .and_then(|v| v["error"].as_str().map(str::to_string))
+            .unwrap_or_default();
+        return Err(if code == 404 && msg.contains("not found") {
+            AppError::invalid(format!(
                 "The model {} is not installed. Run: ollama pull {}",
                 cfg.model, cfg.model
-            )),
-            ureq::Error::StatusCode(c) => AppError::invalid(format!("Ollama returned {c}")),
-            e => {
-                log::warn!("ollama request failed: {e}");
-                AppError::invalid(format!(
-                    "Ollama is not running on this PC. Start Ollama and try again. ({e})"
-                ))
-            }
-        })?;
+            ))
+        } else {
+            AppError::invalid(format!(
+                "Ollama returned {code}{}",
+                if msg.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {msg}")
+                }
+            ))
+        });
+    }
     let reply: Value = res
         .body_mut()
         .read_json()
@@ -180,10 +213,18 @@ pub struct Extracted {
     pub description: Option<String>,
     #[serde(default)]
     pub due_date: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_priority")]
     pub priority: Option<u8>,
     #[serde(default)]
     pub project_name: Option<String>,
+}
+
+/// Accept 2, 2.0 or out-of-range numbers without failing the whole reply; keep only 0-3.
+fn lenient_priority<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+    let v = Option::<Value>::deserialize(d)?;
+    Ok(v.and_then(|v| v.as_f64())
+        .filter(|f| (0.0..=3.0).contains(f) && f.fract() == 0.0)
+        .map(|f| f as u8))
 }
 
 /// Turn captured text into a task suggestion. `today` anchors relative dates; `projects` are the
@@ -365,7 +406,7 @@ mod tests {
     #[test]
     fn extract_is_cleaned_and_limited_to_known_projects() {
         let url = fake_ollama(
-            r#"{"title":"  Follow up with Niamh ","description":"SEPI teacher list","dueDate":"2026-11-27","priority":7,"projectName":"Invented"}"#,
+            r#"{"title":"  Follow up with Niamh ","description":"SEPI teacher list","dueDate":"2026-11-27","priority":7.0,"projectName":"Invented"}"#,
         );
         let (e, tps) = extract_task(
             &on(url),
@@ -395,6 +436,40 @@ mod tests {
         assert_eq!(steps, ["Fix validation", "Test Irish translations"]);
         let url = fake_ollama(r#"{"summary":"Two tasks are overdue; start with the VAT return."}"#);
         assert!(summarise(&on(url), "facts").unwrap().0.contains("VAT"));
+    }
+
+    #[test]
+    fn off_means_no_probe() {
+        let s = status(&AiSettings {
+            enabled: false,
+            ..Default::default()
+        });
+        assert!(!s.reachable && s.version.is_none());
+        let bad = status(&AiSettings {
+            enabled: true,
+            url: "http://10.0.0.5:11434".into(),
+            ..Default::default()
+        });
+        assert!(!bad.reachable);
+    }
+
+    #[test]
+    fn model_names_match_like_ollama() {
+        let url = fake_ollama("{}");
+        assert!(
+            !status(&AiSettings {
+                model: "qwen2.5".into(),
+                ..on(url.clone())
+            })
+            .model_installed
+        );
+        assert!(
+            status(&AiSettings {
+                model: "qwen2.5:3b".into(),
+                ..on(url)
+            })
+            .model_installed
+        );
     }
 
     #[test]

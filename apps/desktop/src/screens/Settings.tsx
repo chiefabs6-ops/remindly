@@ -267,9 +267,10 @@ function LocalAi() {
         </div>
       </div>
       <p className="text-[13px] text-muted">
-        {!st ? "Checking Ollama…" : !st.reachable ? "Ollama is not running. Install it from ollama.com and start it." :
-          st.modelInstalled ? `Ollama ${st.version} is running and ${a.model} is installed.` :
-          `Ollama ${st.version} is running, but ${a.model} is not installed. Run: ollama pull ${a.model}`}
+        {!st ? "Checking Ollama…" : !st.enabled ? "Local AI is off. Turn it on and Save to check Ollama." :
+          !st.reachable ? "Ollama is not running. Install it from ollama.com and start it." :
+          st.modelInstalled ? `Ollama ${st.version} is running and ${cfg.data?.model} is installed.` :
+          `Ollama ${st.version} is running, but ${cfg.data?.model} is not installed. Run: ollama pull ${cfg.data?.model}`}
       </p>
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <button className="btn btn-primary" disabled={!dirty || save.isPending}>Save</button>

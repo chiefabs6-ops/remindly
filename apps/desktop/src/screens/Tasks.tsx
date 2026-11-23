@@ -113,7 +113,7 @@ export function TasksScreen() {
       </div>
       {open && (
         <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-          <TaskPanel id={open} projects={ps} onClose={() => update({ task: null })} onOpen={(id) => update({ task: id })} />
+          <TaskPanel key={open} id={open} projects={ps} onClose={() => update({ task: null })} onOpen={(id) => update({ task: id })} />
         </div>
       )}
     </div>

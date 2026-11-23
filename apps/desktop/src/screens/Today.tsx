@@ -170,7 +170,7 @@ export function TodayScreen() {
       </div>
       {open && (
         <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-          <TaskPanel id={open} projects={ps} onClose={() => openTask(null)} onOpen={openTask} />
+          <TaskPanel key={open} id={open} projects={ps} onClose={() => openTask(null)} onOpen={openTask} />
         </div>
       )}
     </div>
