@@ -25,8 +25,8 @@ export function ProjectForm({ onDone, submitLabel = "Add project" }: { onDone?: 
         <div className="flex h-9 items-center gap-1.5">
           {PROJECT_COLORS.map((c) => (
             <button key={c} type="button" aria-label={TONES.find((t) => t.ink === c)?.label} aria-pressed={color === c} onClick={() => setColor(c)}
-              className={`size-6 rounded-[6px] ${color === c ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : ""}`} style={toneStyle(c)}>
-              <span className="block size-full rounded-[6px]" style={{ boxShadow: `inset 0 0 0 6px ${"var(--surface)"}`, background: toneDot(c), opacity: 0 }} />
+              className={`flex size-7 items-center justify-center rounded-[6px] text-[12px] font-semibold ${color === c ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : ""}`} style={toneStyle(c)}>
+              Aa
             </button>
           ))}
         </div>

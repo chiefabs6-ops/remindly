@@ -14,7 +14,7 @@ import { WelcomeScreen } from "./screens/Welcome";
 function InboxRedirect() {
   const [p] = useSearchParams();
   const s = p.get("s");
-  return <Navigate to={s ? `/?s=${encodeURIComponent(s)}` : "/"} replace />;
+  return <Navigate to={s ? `/?s=${encodeURIComponent(s)}` : "/?approvals=1"} replace />;
 }
 
 function Shell() {

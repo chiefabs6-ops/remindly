@@ -26,7 +26,7 @@ export function DayStrip({ today, tasks, overdue }: { today: string; tasks: Task
                   ? "var(--negative)"
                   : tone === "today"
                     ? "var(--today)"
-                    : "var(--control)",
+                    : "var(--faint)",
           }}
         />
       </span>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
@@ -8,7 +8,7 @@ import { QuickAdd } from "../components/QuickAdd";
 import { TaskPanel } from "../components/TaskPanel";
 import { TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
-import { ago, longDate } from "../lib/format";
+import { ago, dueLabel, longDate } from "../lib/format";
 import { useDashboard, useProjects, useSuggestions } from "../lib/queries";
 import { ORIGIN, Review, UpdateReview, suggestionTitle } from "./Inbox";
 
@@ -63,11 +63,17 @@ function Rail({ onOpenTask, selectedSuggestion, onSelectSuggestion }: {
           Needs your approval <span className="num text-[13px] font-normal text-muted">{list.length}</span>
         </h2>
         <p className="mb-2 text-[13px] text-muted">Captured in Chrome or suggested by Claude Code. Nothing becomes a task until you approve it.</p>
-        {list.length === 0 ? (
+        {sugg.isError ? (
+          <p className="rounded-[8px] bg-raised px-3 py-2.5 text-negative">
+            Couldn’t load approvals: {errorMessage(sugg.error)} <button className="underline" onClick={() => sugg.refetch()}>Retry</button>
+          </p>
+        ) : sugg.isLoading ? (
+          <div className="h-16 rounded-[8px] bg-active" aria-busy="true" />
+        ) : list.length === 0 ? (
           <p className="rounded-[8px] bg-raised px-3 py-2.5 text-muted">All clear.</p>
         ) : (
-          <ul className="overflow-hidden rounded-[8px] border border-line">
-            {list.slice(0, 6).map((s) => (
+          <ul className="max-h-[360px] overflow-y-auto rounded-[8px] border border-line">
+            {list.map((s) => (
               <li key={s.id} className="border-t border-rule first:border-t-0">
                 <button onClick={() => onSelectSuggestion(s.id)} className="block w-full px-3 py-2.5 text-left hover:bg-raised">
                   <span className="flex items-baseline gap-2">
@@ -76,6 +82,10 @@ function Rail({ onOpenTask, selectedSuggestion, onSelectSuggestion }: {
                   </span>
                   <span className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
                     {ORIGIN[s.origin]}
+                    {(s.payload as { dueDate?: string | null }).dueDate && (
+                      <span>· due {dueLabel({ dueDate: (s.payload as { dueDate?: string | null }).dueDate ?? null, dueTime: null })}</span>
+                    )}
+                    {s.kind === "task_update" && <span className="pill">Change</span>}
                     {s.possibleDuplicateOf && <span className="pill pill-warning">Possible duplicate</span>}
                   </span>
                 </button>
@@ -83,7 +93,6 @@ function Rail({ onOpenTask, selectedSuggestion, onSelectSuggestion }: {
             ))}
           </ul>
         )}
-        {list.length > 6 && <p className="mt-2 text-xs text-muted">{list.length - 6} more after these.</p>}
       </section>
 
       <section aria-labelledby="plan-h">
@@ -116,7 +125,9 @@ function Rail({ onOpenTask, selectedSuggestion, onSelectSuggestion }: {
             {d.progress.done > 0 && <div className="h-1.5 rounded-full bg-today" style={{ width: `${(d.progress.done / d.progress.total) * 100}%` }} />}
           </div>
         )}
-        <p className="num mt-1 text-xs text-muted">{d ? `${d.progress.done} of ${d.progress.total} for today` : " "}</p>
+        <p className="num mt-1 mb-2 text-xs text-muted">{d ? `${d.progress.done} of ${d.progress.total} for today` : " "}</p>
+        <TaskList tasks={(d?.completedToday ?? []).slice(0, 5)} projects={projects.data ?? []} onOpen={onOpenTask} compact
+          empty="Nothing finished yet today." />
       </section>
     </div>
   );
@@ -129,6 +140,12 @@ export function TodayScreen() {
   const open = params.get("task");
   const suggestion = params.get("s");
   const [view, setView] = useState<View>("today");
+  const railRef = useRef<HTMLDivElement>(null);
+  const wantsApprovals = params.get("approvals") === "1";
+  useEffect(() => {
+    // Old Inbox links and notification buttons land here: bring the approvals into view.
+    if (wantsApprovals) railRef.current?.scrollIntoView?.({ block: "start" });
+  }, [wantsApprovals]);
   const setParam = (k: "task" | "s", v: string | null) => {
     const next = new URLSearchParams();
     if (v) next.set(k, v);
@@ -152,7 +169,7 @@ export function TodayScreen() {
   const strip: Task[] = d ? [...d.dueToday, ...d.dueSoon, ...d.upcoming] : [];
 
   return (
-    <div className="flex min-h-full max-xl:flex-col">
+    <div className="flex min-h-full max-lg:flex-col">
       <div className="min-w-0 flex-1 px-6 pt-6 pb-10">
         <header className="mb-4">
           <h1 className="text-[22px] leading-7 font-semibold tracking-[-0.01em]">Today</h1>
@@ -170,7 +187,7 @@ export function TodayScreen() {
 
         <div className="mb-4"><QuickAdd projects={ps} onCreated={(id) => openTask(id)} /></div>
 
-        <div className="flex gap-5 border-b border-line" role="tablist">
+        <div className="flex gap-5 border-b border-line" role="tablist" aria-label="Which tasks to show">
           {([["today", "Today"], ["fortnight", "Next 14 days"]] as const).map(([v, label]) => (
             <button key={v} role="tab" aria-selected={view === v} onClick={() => setView(v)}
               className={`-mb-px h-9 border-b-2 font-medium ${view === v ? "border-today text-ink" : "border-transparent text-muted hover:text-ink"}`}>
@@ -215,15 +232,20 @@ export function TodayScreen() {
         )}
       </div>
 
-      <aside className="w-[380px] flex-none border-l border-line max-xl:w-full max-xl:border-t max-xl:border-l-0" aria-label={open ? "Task details" : "Approvals and plan"}>
+      <div
+        ref={railRef}
+        className={`w-[340px] flex-none border-l border-line xl:w-[380px] max-lg:w-full max-lg:border-t max-lg:border-l-0 ${
+          open || suggestion ? "max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:overflow-y-auto max-lg:border-0 max-lg:bg-surface" : ""
+        }`}
+      >
         {open ? (
-          <div className="xl:sticky xl:top-0 xl:h-[calc(100vh-56px)]">
+          <div className="lg:sticky lg:top-0 lg:h-[calc(100vh-60px)]">
             <TaskPanel key={open} id={open} projects={ps} onClose={() => openTask(null)} onOpen={openTask} />
           </div>
         ) : (
           <Rail onOpenTask={(id) => openTask(id)} selectedSuggestion={suggestion} onSelectSuggestion={(id) => setParam("s", id)} />
         )}
-      </aside>
+      </div>
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { Link } from "react-router";
 
 const VIEWS: Record<string, { label: string; statuses: TaskStatus[] }> = {
   all: { label: "All", statuses: [] },
+  unsorted: { label: "Unsorted", statuses: ["inbox"] },
   open: { label: "Open", statuses: ["inbox", "not_started", "in_progress", "waiting"] },
   waiting: { label: "Waiting", statuses: ["waiting"] },
   done: { label: "Completed", statuses: ["completed"] },
@@ -61,14 +62,18 @@ export function TasksScreen() {
         </header>
 
         <div className="mb-4">
-          <QuickAdd projects={ps} projectId={projectId ?? null} />
+          {view === "unsorted" ? (
+            <QuickAdd projects={ps} status="inbox" placeholder="Jot something down — sort it later" />
+          ) : (
+            <QuickAdd projects={ps} projectId={projectId ?? null} />
+          )}
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Filters">
-          <div className="flex rounded-[6px] bg-active p-0.5" role="group" aria-label="Status">
+          <div className="flex max-w-full overflow-x-auto rounded-[6px] bg-active p-0.5" role="group" aria-label="Status">
             {Object.entries(VIEWS).map(([k, v]) => (
               <button key={k} onClick={() => update({ view: k })}
-                className={`h-7 rounded-[5px] px-3 text-[13px] ${view === k ? "bg-surface font-medium" : "text-muted hover:text-ink"}`}
+                className={`h-7 flex-none rounded-[5px] px-3 text-[13px] ${view === k ? "bg-surface font-medium" : "text-muted hover:text-ink"}`}
                 aria-pressed={view === k}>
                 {v.label}
               </button>

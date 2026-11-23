@@ -1,7 +1,7 @@
 # Tether for Chrome
 
 Right-click selected text on any page and choose **Create Task**. The capture goes to the Tether
-desktop app on this PC (`http://127.0.0.1:47821`) and waits in its Inbox until you approve it.
+desktop app on this PC (`http://127.0.0.1:47821`) and waits on Tether's Today screen until you approve it.
 If Tether is closed, captures are kept in the extension and sent when it is running again.
 
 ## Install (unpacked, for this PC)
