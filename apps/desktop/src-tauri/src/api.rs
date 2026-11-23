@@ -24,7 +24,7 @@ use serde_json::json;
 use crate::{
     error::{AppError, AppResult},
     model::{NewSuggestion, SuggestionStatus, TaskFilter, TaskStatus},
-    repo::{projects, settings, suggestions, tasks},
+    repo::{code_projects, notes, projects, settings, suggestions, tasks},
     state::{API_PORT, AppState},
 };
 
@@ -77,6 +77,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/tasks/{id}", get(get_task))
         .route("/v1/projects", get(list_projects))
         .route("/v1/open", post(open_app))
+        .route("/v1/code-projects/resolve", post(resolve_code_project))
+        .route("/v1/notes", get(list_notes))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     Router::new()
@@ -212,6 +214,42 @@ async fn pair(
     log::info!("browser extension paired");
     (s.on_change)();
     Ok(Json(json!({ "token": token })))
+}
+
+/// Find or register the Claude Code repo and return its context (mapped project, open tasks,
+/// pending Claude suggestions). Writes only the code_projects row.
+async fn resolve_code_project(
+    State(s): State<ApiState>,
+    Json(body): Json<code_projects::ResolveInput>,
+) -> AppResult<Json<code_projects::ProjectContext>> {
+    let db = s.app.db.clone();
+    Ok(Json(
+        blocking(move || db.write(|c| code_projects::context(c, &body))).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteQuery {
+    q: Option<String>,
+    project_id: Option<String>,
+    limit: Option<u32>,
+}
+
+async fn list_notes(
+    State(s): State<ApiState>,
+    Query(q): Query<NoteQuery>,
+) -> AppResult<Json<Vec<crate::model::Note>>> {
+    let filter = crate::model::NoteFilter {
+        query: q.q,
+        project_id: q.project_id,
+        limit: Some(q.limit.unwrap_or(20).min(100)),
+        ..Default::default()
+    };
+    let db = s.app.db.clone();
+    Ok(Json(
+        blocking(move || db.read(|c| notes::list(c, &filter))).await?,
+    ))
 }
 
 async fn open_app(State(s): State<ApiState>) -> Json<serde_json::Value> {

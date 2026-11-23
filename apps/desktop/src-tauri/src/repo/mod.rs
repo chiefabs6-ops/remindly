@@ -1,5 +1,6 @@
 //! Repositories: plain functions over a `&Connection`, so callers choose the transaction.
 
+pub mod code_projects;
 pub mod dashboard;
 pub mod history;
 pub mod notes;

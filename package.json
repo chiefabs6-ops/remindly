@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "plugins/*"
   ],
   "scripts": {
     "dev": "npm run tauri dev -w apps/desktop",

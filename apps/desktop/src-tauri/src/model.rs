@@ -339,6 +339,34 @@ pub struct SuggestedTask {
     pub source_url: Option<String>,
     pub source_title: Option<String>,
     pub source_selection: Option<String>,
+    /// Set by the Claude Code integration (from /v1/code-projects/resolve).
+    pub code_project_id: Option<String>,
+}
+
+/// Payload of a `task_update` suggestion: only the fields present are changed.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SuggestedUpdate {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub status: Option<TaskStatus>,
+    /// `Some(None)` clears the date; absent leaves it.
+    #[serde(default, deserialize_with = "some_or_null")]
+    pub due_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "some_or_null")]
+    pub due_time: Option<Option<String>>,
+    #[serde(default)]
+    pub priority: Option<u8>,
+    /// Progress note appended to the task's notes.
+    #[serde(default)]
+    pub append_note: Option<String>,
+}
+
+fn some_or_null<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    Ok(Some(Option::<String>::deserialize(d)?))
 }
 
 // ---------- helpers ----------
