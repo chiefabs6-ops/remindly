@@ -76,7 +76,10 @@ fn open_db(path: &PathBuf) -> rusqlite::Result<Connection> {
         "CREATE TABLE IF NOT EXISTS spike_events(
             id INTEGER PRIMARY KEY, kind TEXT NOT NULL, detail TEXT, at INTEGER NOT NULL)",
     )?;
-    assert_eq!(mode.to_lowercase(), "wal", "WAL mode not enabled");
+    if !mode.eq_ignore_ascii_case("wal") {
+        // Not fatal: SQLite still works in rollback-journal mode, just with less concurrency.
+        eprintln!("warning: WAL mode not enabled (journal_mode={mode})");
+    }
     Ok(conn)
 }
 
@@ -174,7 +177,7 @@ fn send_test_toast(app: &AppHandle) {
     let on_dismiss = core.clone();
     let result = Toast::new(&aumid)
         .title("Tether spike")
-        .text1("Follow up with Niamh about the SEPI teacher list")
+        .text1("Test reminder: buttons should call back into the app")
         .add_button("Snooze 15m", "snooze_15m")
         .add_button("Done", "done")
         .on_activated(move |action| {
@@ -282,11 +285,14 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Started by Windows at login: stay in the tray, no window.
-            if std::env::args().any(|a| a == "--autostart")
-                && let Some(w) = app.get_webview_window("main")
-            {
-                let _ = w.destroy();
+            // The config window starts hidden (`visible: false`) so nothing flashes at login.
+            // Started by Windows at login: stay in the tray and drop the webview; otherwise show it.
+            if let Some(w) = app.get_webview_window("main") {
+                if std::env::args().any(|a| a == "--autostart") {
+                    let _ = w.destroy();
+                } else {
+                    let _ = w.show();
+                }
             }
             Ok(())
         })

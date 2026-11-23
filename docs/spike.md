@@ -24,9 +24,13 @@ Build: Tauri 2 (React-TS template), Rust 1.100.0 MSVC, release NSIS installer.
 
 - Keep `tauri-winrt-notification` for reminders (stock plugin has no Windows actions).
 - Destroy the window on close; re-create from tray / second launch. Re-open cost is acceptable.
-- Data folder is `%APPDATA%\ie.tether.app` (Tauri `app_data_dir`). Proposal text saying `%APPDATA%\Tether` should read `ie.tether.app`.
+- Data folder is `%APPDATA%\ie.tether.app` (Tauri `app_data_dir`); the proposal now uses this path.
+- The main window is configured `visible: false` and shown in `setup` unless started with `--autostart`, so nothing flashes at login.
 
 ## Not yet tested (moved to the phase that needs it)
+
+- RAM with the window *hidden* (not destroyed) — skipped; destroy-on-close is the chosen design and measured at 38 MB.
+- Phase 1 hardening from review: constant-time token compare, `Host` header allow-list (DNS rebinding), no token in the webview, lock errors mapped instead of `unwrap()`.
 
 - Autostart registry entry (plugin registered but not enabled) — Phase 4.
 - Toast clicks after the app has quit (needs COM activator; not needed while tray app runs) — Phase 4.
