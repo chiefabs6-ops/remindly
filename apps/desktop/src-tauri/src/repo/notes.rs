@@ -85,7 +85,7 @@ pub fn update(conn: &Connection, id: &str, input: &NoteInput) -> AppResult<Note>
     let old = get(conn, id)?;
     conn.execute(
         "UPDATE notes SET project_id = ?2, task_id = ?3, title = ?4, body_md = ?5, kind = ?6,
-            source_url = ?7, updated_at = ?8
+            updated_at = ?7
          WHERE id = ?1",
         params![
             id,
@@ -94,7 +94,6 @@ pub fn update(conn: &Connection, id: &str, input: &NoteInput) -> AppResult<Note>
             title,
             body,
             input.kind.unwrap_or(old.kind),
-            clean_text("source url", &input.source_url)?,
             now_utc()
         ],
     )?;
@@ -288,6 +287,27 @@ mod tests {
             db.write(|c| create(c, &note(" ", " "), Source::Manual))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn update_keeps_source_url() {
+        let db = db();
+        let n = db
+            .write(|c| {
+                create(
+                    c,
+                    &NoteInput {
+                        source_url: Some("https://example.com/a".into()),
+                        ..note("Clip", "text")
+                    },
+                    Source::Chrome,
+                )
+            })
+            .unwrap();
+        let u = db
+            .write(|c| update(c, &n.id, &note("Clip", "edited")))
+            .unwrap();
+        assert_eq!(u.source_url.as_deref(), Some("https://example.com/a"));
     }
 
     #[test]

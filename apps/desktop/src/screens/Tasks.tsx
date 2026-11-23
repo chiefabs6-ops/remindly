@@ -8,6 +8,7 @@ import { useNotes, useProjects, useTasks } from "../lib/queries";
 import { Link } from "react-router";
 
 const VIEWS: Record<string, { label: string; statuses: TaskStatus[] }> = {
+  all: { label: "All", statuses: [] },
   open: { label: "Open", statuses: ["inbox", "not_started", "in_progress", "waiting"] },
   waiting: { label: "Waiting", statuses: ["waiting"] },
   done: { label: "Completed", statuses: ["completed"] },
@@ -18,8 +19,9 @@ const VIEWS: Record<string, { label: string; statuses: TaskStatus[] }> = {
 export function TasksScreen() {
   const { projectId } = useParams();
   const [params, setParams] = useSearchParams();
-  const view = VIEWS[params.get("view") ?? "open"] ? (params.get("view") ?? "open") : "open";
   const q = params.get("q") ?? "";
+  // A search looks across every status unless a view is picked.
+  const view = VIEWS[params.get("view") ?? ""] ? params.get("view")! : q ? "all" : "open";
   const filterProject = projectId ?? params.get("project") ?? "";
   const filter: TaskFilter = {
     statuses: VIEWS[view].statuses,
@@ -30,7 +32,7 @@ export function TasksScreen() {
   };
   const tasks = useTasks(filter);
   const projects = useProjects();
-  const notes = useNotes({ projectId: projectId ?? null, limit: 5 });
+  const notes = useNotes({ projectId: projectId ?? null, query: q || null, limit: 5 });
   const ps = projects.data ?? [];
   const project = projectId ? ps.find((p) => p.id === projectId) : undefined;
   const open = params.get("task");
@@ -64,7 +66,7 @@ export function TasksScreen() {
         <div className="mb-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Filters">
           <div className="flex rounded-[6px] bg-active p-0.5" role="group" aria-label="Status">
             {Object.entries(VIEWS).map(([k, v]) => (
-              <button key={k} onClick={() => update({ view: k === "open" ? null : k })}
+              <button key={k} onClick={() => update({ view: k })}
                 className={`h-7 rounded-[5px] px-3 text-[13px] ${view === k ? "bg-surface font-medium" : "text-muted hover:text-ink"}`}
                 aria-pressed={view === k}>
                 {v.label}
@@ -95,17 +97,17 @@ export function TasksScreen() {
           )}
         </div>
 
-        {projectId && (
+        {(projectId || q) && (
           <section className="mt-6 rounded-[8px] border border-line bg-surface p-4" aria-labelledby="pn-h">
             <div className="mb-2 flex items-baseline justify-between">
-              <h2 id="pn-h" className="font-medium">Notes in this project</h2>
-              <Link to={`/notes?project=${projectId}`} className="text-xs underline">All notes</Link>
+              <h2 id="pn-h" className="font-medium">{q ? "Matching notes" : "Notes in this project"}</h2>
+              <Link to={projectId ? `/notes?project=${projectId}` : "/notes"} className="text-xs underline">All notes</Link>
             </div>
             {notes.data?.length ? (
               <ul>{notes.data.map((n) => (
                 <li key={n.id}><Link to={`/notes?note=${n.id}`} className="block truncate rounded-[6px] px-2 py-1.5 hover:bg-raised">{n.title || n.bodyMd.split("\n")[0]}</Link></li>
               ))}</ul>
-            ) : <p className="text-muted">No notes linked to this project yet.</p>}
+            ) : <p className="text-muted">{q ? `No notes match "${q}".` : "No notes linked to this project yet."}</p>}
           </section>
         )}
       </div>

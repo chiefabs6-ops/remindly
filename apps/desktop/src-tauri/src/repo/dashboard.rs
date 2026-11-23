@@ -145,13 +145,13 @@ pub fn build(conn: &Connection, clock: &Clock) -> AppResult<Dashboard> {
     )?;
     let due_soon = query(
         conn,
-        "t.due_date > ?1 AND t.due_date <= ?3",
+        "t.due_date > ?1 AND t.due_date <= ?3 AND NOT coalesce(t.scheduled_date <= ?1, 0)",
         &[&today, &clock.now_hm, &soon_end],
         tasks::ORDER,
     )?;
     let upcoming = query(
         conn,
-        "t.due_date > ?3 AND t.due_date <= ?4",
+        "t.due_date > ?3 AND t.due_date <= ?4 AND NOT coalesce(t.scheduled_date <= ?1, 0)",
         &[&today, &clock.now_hm, &soon_end, &upcoming_end],
         tasks::ORDER,
     )?;
@@ -268,20 +268,53 @@ mod tests {
         mk(&db, "soon", Some("2026-11-26"), None, None);
         mk(&db, "upcoming", Some("2026-12-01"), None, None);
         mk(&db, "far", Some("2027-01-30"), None, None);
+        // Planned today / earlier but due later: shown once (today / carried), not again as "soon".
+        mk(
+            &db,
+            "planned today due soon",
+            Some("2026-11-24"),
+            None,
+            Some("2026-11-23"),
+        );
+        mk(
+            &db,
+            "planned earlier due soon",
+            Some("2026-11-25"),
+            None,
+            Some("2026-11-22"),
+        );
         let done = mk(&db, "done", Some("2026-11-23"), None, None);
         db.write(|c| tasks::set_status(c, &done.id, TaskStatus::Completed, false, Actor::User))
             .unwrap();
 
         let d = db.read(|c| build(c, &clock())).unwrap();
         assert_eq!(titles(&d.overdue), ["late", "late today"]);
-        assert_eq!(titles(&d.due_today), ["today later", "today undated"]);
-        assert_eq!(titles(&d.carried_over), ["carried"]);
+        assert_eq!(
+            titles(&d.due_today),
+            ["today later", "planned today due soon", "today undated"]
+        );
+        assert_eq!(
+            titles(&d.carried_over),
+            ["carried", "planned earlier due soon"]
+        );
         assert_eq!(titles(&d.due_soon), ["soon"]);
         assert_eq!(titles(&d.upcoming), ["upcoming"]);
         assert_eq!(titles(&d.completed_today), ["done"]);
         assert_eq!(d.progress.done, 1);
-        assert_eq!(d.progress.total, 1 + 2 + 2 + 1);
-        assert_eq!(d.recent.len(), 9);
+        assert_eq!(d.progress.total, 1 + 2 + 3 + 2);
+        assert_eq!(d.recent.len(), 10);
+        // No task appears in two buckets.
+        let mut seen = std::collections::HashSet::new();
+        for t in d
+            .overdue
+            .iter()
+            .chain(&d.due_today)
+            .chain(&d.carried_over)
+            .chain(&d.due_soon)
+            .chain(&d.upcoming)
+        {
+            assert!(seen.insert(t.id.clone()), "{} listed twice", t.title);
+        }
     }
 
     #[test]

@@ -96,6 +96,15 @@ pub fn run() {
             })?;
             app.manage(state.clone());
 
+            // Soft-deleted tasks are kept 30 days, then purged (proposal section 7).
+            let cutoff = (chrono::Utc::now() - chrono::Duration::days(30))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            match state.db.write(|c| repo::tasks::purge_deleted(c, &cutoff)) {
+                Ok(n) if n > 0 => log::info!("purged {n} deleted tasks"),
+                Ok(_) => {}
+                Err(e) => log::warn!("purge failed: {e}"),
+            }
+
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(api::serve(ApiState {
                 app: state,

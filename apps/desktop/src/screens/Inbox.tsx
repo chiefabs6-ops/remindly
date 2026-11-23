@@ -44,7 +44,7 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
     [s.id]);
   const approve = useAction(() =>
     api.approveSuggestion(s.id, s.kind === "task"
-      ? { ...p, ...form, projectId: form.projectId || null, projectName: null, dueDate: form.dueDate || null, priority: Number(form.priority) }
+      ? { ...p, ...form, projectId: form.projectId || null, projectName: null, dueDate: form.dueDate || null, dueTime: form.dueDate ? (p.dueTime ?? null) : null, priority: Number(form.priority) }
       : undefined),
   );
   const dismiss = useAction(() => api.dismissSuggestion(s.id));

@@ -123,6 +123,17 @@ pub fn find_similar_task(conn: &Connection, title: &str) -> AppResult<Option<Str
         .map(|(_, id)| id))
 }
 
+/// Only web links may come from outside clients (no `javascript:`, `file:` ...).
+fn check_url(url: &Option<String>) -> AppResult<()> {
+    match url.as_deref().map(str::trim) {
+        None | Some("") => Ok(()),
+        Some(u) if (u.starts_with("https://") || u.starts_with("http://")) && u.len() <= 2048 => {
+            Ok(())
+        }
+        Some(_) => Err(AppError::invalid("sourceUrl must be an http(s) link")),
+    }
+}
+
 /// Validate a payload for its kind; returns the title used for duplicate checks.
 fn validate_payload(conn: &Connection, s: &NewSuggestion) -> AppResult<Option<String>> {
     match s.kind {
@@ -130,6 +141,7 @@ fn validate_payload(conn: &Connection, s: &NewSuggestion) -> AppResult<Option<St
             let t: SuggestedTask = serde_json::from_value(s.payload.clone())
                 .map_err(|e| AppError::invalid(format!("invalid task payload: {e}")))?;
             let title = clean_title(&t.title)?;
+            check_url(&t.source_url)?;
             clean_date("due date", &t.due_date)?;
             clean_time("due time", &t.due_time)?;
             if t.priority.is_some_and(|p| p > 3) {
@@ -140,6 +152,7 @@ fn validate_payload(conn: &Connection, s: &NewSuggestion) -> AppResult<Option<St
         SuggestionKind::Note => {
             let n: NoteInput = serde_json::from_value(s.payload.clone())
                 .map_err(|e| AppError::invalid(format!("invalid note payload: {e}")))?;
+            check_url(&n.source_url)?;
             if n.title.trim().is_empty() && n.body_md.trim().is_empty() {
                 return Err(AppError::invalid("a note needs a title or some text"));
             }
@@ -159,8 +172,8 @@ fn validate_payload(conn: &Connection, s: &NewSuggestion) -> AppResult<Option<St
     }
 }
 
-/// Store a suggestion. Idempotent on `dedupe_key` while the earlier one is still pending,
-/// so clients can safely retry after a timeout.
+/// Store a suggestion. Idempotent on `dedupe_key` whatever the earlier one's status, so a client
+/// retrying after a timeout, or an offline queue replaying, never re-creates a decided item.
 pub fn create(conn: &Connection, s: &NewSuggestion) -> AppResult<Suggestion> {
     let dedupe_key = s
         .dedupe_key
@@ -174,7 +187,7 @@ pub fn create(conn: &Connection, s: &NewSuggestion) -> AppResult<Suggestion> {
         }
         let existing: Option<String> = conn
             .query_row(
-                "SELECT id FROM suggestions WHERE dedupe_key = ?1 AND status = 'pending'",
+                "SELECT id FROM suggestions WHERE dedupe_key = ?1 ORDER BY created_at DESC LIMIT 1",
                 [k],
                 |r| r.get(0),
             )
@@ -402,6 +415,12 @@ mod tests {
         assert_eq!(a.id, b.id);
         assert_eq!(db.read(|c| list(c, None, 50)).unwrap().len(), 1);
         assert_eq!(db.read(pending_counts).unwrap(), vec![(Origin::Chrome, 1)]);
+        // Still idempotent after a decision (offline queue replay).
+        db.write(|c| dismiss(c, &a.id)).unwrap();
+        let c2 = db
+            .write(|c| create(c, &chrome_task("Follow up with Niamh", Some("k1"))))
+            .unwrap();
+        assert_eq!(c2.id, a.id);
     }
 
     #[test]
@@ -473,6 +492,9 @@ mod tests {
         assert!(db.write(|c| create(c, &bad)).is_err());
         bad = chrome_task("ok", None);
         bad.payload["dueDate"] = json!("Friday");
+        assert!(db.write(|c| create(c, &bad)).is_err());
+        bad = chrome_task("ok", None);
+        bad.payload["sourceUrl"] = json!("javascript:alert(1)");
         assert!(db.write(|c| create(c, &bad)).is_err());
         let upd = NewSuggestion {
             kind: SuggestionKind::TaskUpdate,

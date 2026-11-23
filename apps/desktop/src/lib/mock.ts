@@ -273,8 +273,9 @@ function dashboard(): Dashboard {
   const carriedOver = tops.filter(
     (t) => !overdueT(t) && notInbox(t) && !!t.scheduledDate && t.scheduledDate < today && (!t.dueDate || t.dueDate > today),
   );
-  const dueSoon = tops.filter((t) => !!t.dueDate && t.dueDate > today && t.dueDate <= addDays(today, 3));
-  const upcoming = tops.filter((t) => !!t.dueDate && t.dueDate > addDays(today, 3) && t.dueDate <= addDays(today, 14));
+  const plannedEarlier = (t: Task) => !!t.scheduledDate && t.scheduledDate <= today;
+  const dueSoon = tops.filter((t) => !!t.dueDate && t.dueDate > today && t.dueDate <= addDays(today, 3) && !plannedEarlier(t));
+  const upcoming = tops.filter((t) => !!t.dueDate && t.dueDate > addDays(today, 3) && t.dueDate <= addDays(today, 14) && !plannedEarlier(t));
   const completedToday = store.tasks
     .filter((t) => live(t) && t.status === "completed" && !!t.completedAt && isoDate(new Date(t.completedAt)) === today)
     .map(withCounts);
