@@ -6,7 +6,8 @@ import { TaskPanel } from "../components/TaskPanel";
 import { TaskList } from "../components/TaskRow";
 import { errorMessage } from "../lib/api";
 import { ago, longDate } from "../lib/format";
-import { useDashboard, useProjects } from "../lib/queries";
+import { useAction, useAiEnabled, useDashboard, useProjects } from "../lib/queries";
+import { api } from "../lib/api";
 
 function Section({ title, count, tone, children }: { title: string; count: number; tone?: "late"; children: React.ReactNode }) {
   return (
@@ -29,6 +30,8 @@ export function TodayScreen() {
   const open = params.get("task");
   const openTask = (id: string | null) => setParams(id ? { task: id } : {}, { replace: true });
   const ps = projects.data ?? [];
+  const aiOn = useAiEnabled();
+  const plan = useAction(() => api.aiSummary());
 
   if (dash.isError) {
     return (
@@ -71,6 +74,16 @@ export function TodayScreen() {
         <div className="mb-5">
           <QuickAdd projects={ps} onCreated={(id) => openTask(id)} />
         </div>
+
+        {aiOn && (
+          <div className="mb-5 flex flex-wrap items-start gap-3">
+            <button className="btn" disabled={plan.isPending} onClick={() => plan.mutate(undefined)}>
+              {plan.isPending ? "Thinking…" : "Plan my day with AI"}
+            </button>
+            {plan.data && <p className="min-w-0 flex-1 rounded-[8px] bg-surface p-3">{plan.data.value}</p>}
+            {plan.isError && <p className="text-negative">{errorMessage(plan.error)}</p>}
+          </div>
+        )}
 
         <div className="mb-6 rounded-[8px] border border-line bg-surface px-4 pt-3 pb-2">
           <div className="mb-2 flex items-baseline justify-between">

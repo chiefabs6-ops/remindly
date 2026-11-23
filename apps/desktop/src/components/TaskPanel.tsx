@@ -13,7 +13,7 @@ import {
 } from "@tether/core";
 import { api, errorMessage } from "../lib/api";
 import { ago, hostOf, todayIso } from "../lib/format";
-import { useAction, useTask } from "../lib/queries";
+import { useAction, useAiEnabled, useTask } from "../lib/queries";
 import { TaskList } from "./TaskRow";
 
 function toForm(t: TaskDetail): Required<TaskInput> & { tagText: string } {
@@ -64,6 +64,12 @@ export function TaskPanel({ id, projects, onClose, onOpen }: {
   const duplicate = useAction(() => api.duplicate(id));
   const remove = useAction(() => api.deleteTask(id));
   const addSub = useAction((title: string) => api.createTask({ title }, id));
+  const aiOn = useAiEnabled();
+  const [steps, setSteps] = useState<{ text: string; on: boolean }[] | null>(null);
+  const breakdown = useAction(() => api.aiBreakdown(id));
+  const addSteps = useAction(async (titles: string[]) => {
+    for (const title of titles) await api.createTask({ title }, id);
+  });
 
   if (q.isError) {
     return (
@@ -207,6 +213,31 @@ export function TaskPanel({ id, projects, onClose, onOpen }: {
           Subtasks <span className="num text-muted">{t.subtaskDone}/{t.subtaskCount}</span>
         </h2>
         <TaskList tasks={t.subtasks} projects={projects} onOpen={onOpen} hideProject empty="No subtasks. Break this into steps below." />
+        {aiOn && !steps && (
+          <button type="button" className="btn mt-2" disabled={breakdown.isPending}
+            onClick={() => breakdown.mutate(undefined, { onSuccess: (r) => setSteps(r.value.map((text) => ({ text, on: true }))) })}>
+            {breakdown.isPending ? "Thinking…" : "Break into steps with AI"}
+          </button>
+        )}
+        {breakdown.isError && <p className="mt-2 text-negative">{errorMessage(breakdown.error)}</p>}
+        {steps && (
+          <fieldset className="mt-2 rounded-[8px] bg-raised p-3">
+            <legend className="label">Suggested steps — pick the ones to add</legend>
+            {steps.map((st, i) => (
+              <label key={i} className="flex items-center gap-2 py-1">
+                <input type="checkbox" checked={st.on} onChange={() => setSteps(steps.map((x, j) => (j === i ? { ...x, on: !x.on } : x)))} />
+                {st.text}
+              </label>
+            ))}
+            <div className="mt-2 flex gap-2">
+              <button type="button" className="btn btn-primary" disabled={addSteps.isPending || !steps.some((x) => x.on)}
+                onClick={() => addSteps.mutate(steps.filter((x) => x.on).map((x) => x.text), { onSuccess: () => setSteps(null) })}>
+                Add {steps.filter((x) => x.on).length} subtasks
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setSteps(null)}>Cancel</button>
+            </div>
+          </fieldset>
+        )}
         <form
           className="mt-2"
           onSubmit={(e) => {

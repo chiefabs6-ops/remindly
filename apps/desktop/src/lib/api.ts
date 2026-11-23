@@ -62,6 +62,33 @@ export interface BackupFile {
   takenAt: string;
 }
 
+export interface AiSettings {
+  enabled: boolean;
+  url: string;
+  model: string;
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  reachable: boolean;
+  version: string | null;
+  models: string[];
+  modelInstalled: boolean;
+}
+
+export interface AiResult<T> {
+  value: T;
+  tokensPerSecond: number;
+}
+
+export interface Extracted {
+  title: string;
+  description?: string | null;
+  dueDate?: string | null;
+  priority?: number | null;
+  projectName?: string | null;
+}
+
 type Args = Record<string, unknown>;
 type Invoke = <T>(cmd: string, args?: Args) => Promise<T>;
 
@@ -153,6 +180,12 @@ export const api = {
   exportJson: () => call<string>("export_json"),
   dbHealth: () => call<string>("db_health"),
   reveal: (path: string) => call<void>("reveal_path", { path }),
+  aiSettings: () => call<AiSettings>("ai_settings_get"),
+  setAiSettings: (value: AiSettings) => call<AiSettings>("ai_settings_set", { value }),
+  aiStatus: () => call<AiStatus>("ai_status"),
+  aiExtract: (text: string, pageTitle: string | null) => call<AiResult<Extracted>>("ai_extract", { text, pageTitle }),
+  aiBreakdown: (id: string) => call<AiResult<string[]>>("ai_breakdown", { id }),
+  aiSummary: () => call<AiResult<string>>("ai_summary"),
   codeProjects: () => call<CodeProject[]>("code_projects_list"),
   linkCodeProject: (id: string, projectId: string | null) =>
     call<CodeProject>("code_project_set_project", { id, projectId }),

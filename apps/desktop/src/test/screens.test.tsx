@@ -132,3 +132,27 @@ describe("Settings backups", () => {
     expect(screen.getByRole("switch", { name: "Back up automatically every day" })).not.toBeChecked();
   });
 });
+
+describe("Local AI", () => {
+  it("is hidden while off", async () => {
+    window.location.hash = "#/";
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: "Today" });
+    expect(screen.queryByRole("button", { name: /Plan my day/ })).toBeNull();
+  });
+
+  it("when on, breaks a task into chosen subtasks", async () => {
+    await mockInvoke("ai_settings_set", { value: { enabled: true, url: "http://127.0.0.1:11434", model: "qwen2.5:3b" } });
+    const user = userEvent.setup();
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
+    window.location.hash = `#/?task=${t.id}`;
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Break into steps with AI" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Check the full profile flow" }));
+    await user.click(screen.getByRole("button", { name: "Add 2 subtasks" }));
+    await waitFor(async () => {
+      const subs = await mockInvoke<unknown[]>("tasks_list", { filter: { parentId: t.id } });
+      expect(subs).toHaveLength(2);
+    });
+  });
+});

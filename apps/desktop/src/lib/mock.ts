@@ -532,6 +532,15 @@ const handlers: Record<string, (a: Args) => unknown> = {
   export_json: () => String.raw`C:\Users\you\Documents\Tether\Exports\tether-export.json`,
   db_health: () => "ok",
   reveal_path: () => undefined,
+  ai_settings_get: () => (store.settings.ai as object | undefined) ?? { enabled: false, url: "http://127.0.0.1:11434", model: "qwen2.5:3b" },
+  ai_settings_set: ({ value }) => {
+    store.settings.ai = value;
+    return value;
+  },
+  ai_status: () => ({ enabled: !!(store.settings.ai as { enabled?: boolean } | undefined)?.enabled, reachable: false, version: null, models: [], modelInstalled: false }),
+  ai_extract: () => err("invalid", "Ollama is not running on this PC. Start Ollama and try again."),
+  ai_breakdown: () => ({ value: ["Fix validation errors", "Test Irish translations", "Check the full profile flow"], tokensPerSecond: 9.8 }),
+  ai_summary: () => ({ value: "One task is overdue; start with the teacher list, then the expense claims.", tokensPerSecond: 9.8 }),
   api_info: () => ({ url: "http://127.0.0.1:47821", tokenHint: "3f9a", dataDir: "%APPDATA%\\ie.tether.app" }),
 };
 

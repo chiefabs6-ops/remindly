@@ -7,7 +7,7 @@ import { TaskPanel } from "../components/TaskPanel";
 import { SourceIcon, TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
 import { ago, dueLabel, hostOf } from "../lib/format";
-import { useAction, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
+import { useAction, useAiEnabled, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
 
 const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
 const title = (s: Suggestion) =>
@@ -122,6 +122,20 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
       : undefined),
   );
   const dismiss = useAction(() => api.dismissSuggestion(s.id));
+  const aiOn = useAiEnabled();
+  const ai = useAction(() => api.aiExtract(p.sourceSelection ?? p.title ?? "", p.sourceTitle ?? null));
+  const applyAi = () =>
+    ai.mutate(undefined, {
+      onSuccess: ({ value: v }) =>
+        setForm((f) => ({
+          ...f,
+          title: v.title || f.title,
+          description: v.description ?? f.description,
+          dueDate: v.dueDate ?? f.dueDate,
+          priority: (v.priority ?? f.priority) as typeof f.priority,
+          projectId: projects.find((x) => x.name === v.projectName)?.id ?? f.projectId,
+        })),
+    });
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
   const deadlineGuess = s.confidence?.dueDate !== undefined && s.confidence.dueDate < 0.8;
 
@@ -131,7 +145,15 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
         <SourceIcon source={s.origin === "chrome" ? "chrome" : s.origin === "claude" ? "claude" : "ai"} />
         From {ORIGIN[s.origin]} · {ago(s.createdAt)}
       </p>
-      <h2 className="mb-4 text-xl font-semibold">{s.kind === "note" ? "Save this note?" : "Add this task?"}</h2>
+      <div className="mb-4 flex items-center gap-3">
+        <h2 className="text-xl font-semibold">{s.kind === "note" ? "Save this note?" : "Add this task?"}</h2>
+        {aiOn && s.kind === "task" && (
+          <button className="btn ml-auto" disabled={ai.isPending} onClick={applyAi} title="Fills the form; nothing is saved until you approve">
+            {ai.isPending ? "Thinking…" : "Suggest with AI"}
+          </button>
+        )}
+      </div>
+      {ai.isError && <p className="mb-3 text-negative">{errorMessage(ai.error)}</p>}
 
       {s.possibleDuplicateOf && (
         <p className="mb-4 flex items-start gap-2 rounded-[8px] bg-[var(--pill-warning-bg)] px-3 py-2 text-[var(--pill-warning-ink)]">

@@ -151,7 +151,9 @@ fn chat<T: DeserializeOwned>(
             ureq::Error::StatusCode(c) => AppError::invalid(format!("Ollama returned {c}")),
             e => {
                 log::warn!("ollama request failed: {e}");
-                AppError::invalid(format!("Ollama is not running on this PC. Start Ollama and try again. ({e})"))
+                AppError::invalid(format!(
+                    "Ollama is not running on this PC. Start Ollama and try again. ({e})"
+                ))
             }
         })?;
     let reply: Value = res
@@ -299,7 +301,7 @@ mod tests {
                     .route("/api/tags", get(|| async { Json(json!({ "models": [{ "name": "qwen2.5:3b" }] })) }))
                     .route(
                         "/api/chat",
-                        post(move || async move {
+                        post(move |_body: String| async move {
                             Json(json!({ "message": { "content": content }, "eval_count": 40, "eval_duration": 4_000_000_000u64 }))
                         }),
                     );
