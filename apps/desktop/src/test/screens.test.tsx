@@ -137,6 +137,28 @@ describe("Settings backups", () => {
   });
 });
 
+describe("Settings sections", () => {
+  it("shows one section at a time and keeps it in the address", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/settings";
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Appearance" })).toBeInTheDocument();
+    expect(screen.queryByText(/Database check/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Backups" }));
+    expect(await screen.findByText(/Database check: healthy/)).toBeInTheDocument();
+    expect(window.location.hash).toContain("section=backups");
+  });
+});
+
+describe("Projects", () => {
+  it("cards show open and overdue counts", async () => {
+    window.location.hash = "#/projects";
+    render(<App />);
+    expect(await screen.findByText("2 overdue")).toBeInTheDocument();
+    expect(screen.getByText("6 open")).toBeInTheDocument();
+  });
+});
+
 describe("Local AI", () => {
   it("AI buttons are hidden while off; Plan my day works without AI", async () => {
     const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
@@ -178,6 +200,67 @@ describe("Task page", () => {
     expect(screen.getByRole("link", { name: /Re: Teacher list/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(await screen.findByLabelText("Title")).toHaveValue("Follow up about the updated teacher list");
+  });
+
+  it("shows captured text once when the description repeats it", async () => {
+    const [s0] = await mockInvoke<{ id: string; payload: Record<string, unknown> }[]>("suggestions_list", { status: "pending" });
+    const sel = "Follow up about the updated teacher list before Friday.";
+    const r = await mockInvoke<{ id: string }>("suggestion_approve", { id: s0.id, edited: { ...s0.payload, description: sel, sourceSelection: sel } });
+    window.location.hash = `#/task/${r.id}`;
+    render(<App />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.getAllByText(new RegExp(sel.replace(/\./g, "\\.")))).toHaveLength(1);
+  });
+
+  it("changing priority in the panel keeps the other fields", async () => {
+    const user = userEvent.setup();
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Approve October expense claims" } });
+    await mockInvoke("task_update", { id: t.id, input: { title: "Approve October expense claims", dueDate: todayIso(), dueTime: "09:00", priority: 2, tags: ["finance"] } });
+    window.location.hash = `#/task/${t.id}`;
+    render(<App />);
+    await user.selectOptions(await screen.findByLabelText("Priority"), "3");
+    await waitFor(async () => {
+      const d = await mockInvoke<{ priority: number; tags: string[]; dueTime: string; dueDate: string }>("task_get", { id: t.id });
+      expect(d.priority).toBe(3);
+      expect(d.tags).toEqual(["finance"]);
+      expect(d.dueTime).toBe("09:00");
+      expect(d.dueDate).toBe(todayIso());
+    });
+  });
+
+  it("tags save on blur, not on each key, and follow later changes", async () => {
+    const user = userEvent.setup();
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
+    window.location.hash = `#/task/${t.id}`;
+    render(<App />);
+    const tags = await screen.findByLabelText("Tags");
+    await user.type(tags, "car, car, #home");
+    let d = await mockInvoke<{ tags: string[] }>("task_get", { id: t.id });
+    expect(d.tags).toEqual([]);
+    await user.tab();
+    await waitFor(async () => {
+      d = await mockInvoke<{ tags: string[] }>("task_get", { id: t.id });
+      expect(d.tags).toEqual(["car", "home"]);
+    });
+    await waitFor(() => expect(screen.getByLabelText("Tags")).toHaveValue("car, home"));
+  });
+
+  it("a due date typed in the panel is saved once, on blur, keeping the time", async () => {
+    const user = userEvent.setup();
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Approve October expense claims" } });
+    window.location.hash = `#/task/${t.id}`;
+    render(<App />);
+    const due = await screen.findByLabelText("Due");
+    await user.clear(due);
+    let d = await mockInvoke<{ dueDate: string | null }>("task_get", { id: t.id });
+    expect(d.dueDate).toBe(todayIso());
+    await user.type(due, "2027-01-15");
+    await user.tab();
+    await waitFor(async () => {
+      const x = await mockInvoke<{ dueDate: string; dueTime: string; history: { field: string | null }[] }>("task_get", { id: t.id });
+      expect(x.dueDate).toBe("2027-01-15");
+      expect(x.dueTime).toBe("09:00");
+    });
   });
 
   it("old ?task= links land on the task page", async () => {

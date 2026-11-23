@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ArrowLeft, Bot, Check, Copy, ExternalLink, Globe, Pencil, RotateCcw, StickyNote, Trash2 } from "lucide-react";
 import { PRIORITY_LABEL, STATUS_LABEL, TASK_STATUSES, addDays, type HistoryEntry, type Priority, type TaskDetail, type TaskInput, type TaskStatus } from "@tether/core";
@@ -7,7 +7,7 @@ import { TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
 import { toneDot } from "../lib/colors";
 import { ago, dueTone, hostOf, todayIso } from "../lib/format";
-import { useAction, useAiEnabled, useProjects, useTask } from "../lib/queries";
+import { keys, queryClient, useAction, useAiEnabled, useProjects, useTask } from "../lib/queries";
 
 /** Tiny Markdown for notes and Claude context: paragraphs, "- " lists and **bold** only. */
 function Markdown({ text }: { text: string }) {
@@ -91,6 +91,26 @@ function Prop({ label, htmlFor, children }: { label: string; htmlFor?: string; c
 /** Quiet inline control: looks like text until hovered or focused. */
 const QUIET = "h-8 w-full min-w-0 rounded-[6px] border border-transparent bg-transparent px-2 text-[13px] hover:bg-active focus:border-line focus:bg-raised focus:outline-none";
 
+/** An input that saves once, on blur or Enter (not on every keystroke), and follows the saved value while idle. */
+function CommitInput({ value, onCommit, ...rest }: { value: string; onCommit: (v: string) => void } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
+  const [draft, setDraft] = useState(value);
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) setDraft(value);
+  }, [value]);
+  const commit = () => {
+    editing.current = false;
+    if (draft !== value) onCommit(draft);
+  };
+  return (
+    <input {...rest} value={draft}
+      onFocus={() => { editing.current = true; }}
+      onChange={(e) => { editing.current = true; setDraft(e.target.value); }}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }} />
+  );
+}
+
 function Body({ t }: { t: TaskDetail }) {
   const navigate = useNavigate();
   const projects = useProjects();
@@ -118,15 +138,20 @@ function Body({ t }: { t: TaskDetail }) {
     }
   });
   const tone = dueTone(t);
-  const patch = useAction((p: Partial<TaskInput>) => api.updateTask(t.id, { ...asInput(t), ...p }));
+  // Build each save from the newest copy of the task, so overlapping edits never send stale fields back.
+  const latest = () => queryClient.getQueryData<TaskDetail>(keys.task(t.id)) ?? t;
+  const patch = useAction((p: Partial<TaskInput>) => api.updateTask(t.id, { ...asInput(latest()), ...p }));
   const setStatus = useAction((s: TaskStatus) => api.setStatus(t.id, s, s === "completed"));
-  const reschedule = useAction((d: string | null) => api.reschedule(t.id, d, d ? t.dueTime : null));
-  const [tagText, setTagText] = useState(t.tags.join(", "));
+  // Remember the last due time, so clearing the date and setting it again keeps the time.
+  const lastTime = useRef(t.dueTime);
+  if (t.dueTime) lastTime.current = t.dueTime;
+  const reschedule = useAction((d: string | null) => api.reschedule(t.id, d, d ? (latest().dueTime ?? lastTime.current) : null));
+  const busy = patch.isPending || setStatus.isPending || reschedule.isPending;
   const [remindAt, setRemindAt] = useState("");
   const remind = useAction((local: string) => api.remindAt(t.id, new Date(local).toISOString()));
-  const saveTags = () => {
-    const tags = tagText.split(",").map((x) => x.trim().replace(/^#/, "")).filter(Boolean);
-    if (tags.join(",") !== t.tags.join(",")) patch.mutate({ tags });
+  const saveTags = (text: string) => {
+    const tags = [...new Set(text.split(",").map((x) => x.trim().replace(/^#/, "")).filter(Boolean))];
+    if (tags.join(",") !== latest().tags.join(",")) patch.mutate({ tags });
   };
   const err = toggle.error ?? duplicate.error ?? remove.error ?? addSub.error ?? patch.error ?? setStatus.error ?? reschedule.error ?? remind.error;
   const location = useLocation();
@@ -241,25 +266,26 @@ function Body({ t }: { t: TaskDetail }) {
 
     <aside className="min-w-0 flex-none border-line px-6 py-5 max-lg:border-t lg:w-[320px] lg:border-l lg:px-5" aria-label="Properties">
       <h2 className="mb-2 text-xs font-medium text-muted">Properties</h2>
+      <fieldset disabled={busy} aria-busy={busy} className="contents">
       <Prop label="Status" htmlFor="p-status">
-        <select id="p-status" className={QUIET} value={t.status} disabled={setStatus.isPending}
+        <select id="p-status" className={QUIET} value={t.status}
           onChange={(e) => setStatus.mutate(e.target.value as TaskStatus)}>
           {TASK_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
         </select>
       </Prop>
       <Prop label="Due" htmlFor="p-due">
-        <input id="p-due" type="date" className={`${QUIET} ${tone === "overdue" ? "text-negative" : tone === "today" ? "text-today" : ""}`}
-          value={t.dueDate ?? ""} onChange={(e) => reschedule.mutate(e.target.value || null)} />
+        <CommitInput id="p-due" type="date" className={`${QUIET} ${tone === "overdue" ? "text-negative" : tone === "today" ? "text-today" : ""}`}
+          value={t.dueDate ?? ""} onCommit={(v) => reschedule.mutate(v || null)} />
       </Prop>
       {t.dueDate && (
         <Prop label="Due time" htmlFor="p-time">
-          <input id="p-time" type="time" className={QUIET} value={t.dueTime ?? ""}
-            onChange={(e) => patch.mutate({ dueTime: e.target.value || null })} />
+          <CommitInput id="p-time" type="time" className={QUIET} value={t.dueTime ?? ""}
+            onCommit={(v) => patch.mutate({ dueTime: v || null })} />
         </Prop>
       )}
       <Prop label="Do on" htmlFor="p-do">
-        <input id="p-do" type="date" className={QUIET} value={t.scheduledDate ?? ""}
-          onChange={(e) => patch.mutate({ scheduledDate: e.target.value || null })} />
+        <CommitInput id="p-do" type="date" className={QUIET} value={t.scheduledDate ?? ""}
+          onCommit={(v) => patch.mutate({ scheduledDate: v || null })} />
       </Prop>
       <Prop label="Project" htmlFor="p-project">
         <select id="p-project" className={QUIET} value={t.projectId ?? ""}
@@ -275,14 +301,13 @@ function Body({ t }: { t: TaskDetail }) {
         </select>
       </Prop>
       <Prop label="Tags" htmlFor="p-tags">
-        <input id="p-tags" className={QUIET} placeholder="Add tags" value={tagText} onChange={(e) => setTagText(e.target.value)}
-          onBlur={saveTags} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveTags(); } }} />
+        <CommitInput id="p-tags" className={QUIET} placeholder="Add tags" value={t.tags.join(", ")} onCommit={saveTags} />
       </Prop>
       {!done && (
         <form className="contents" onSubmit={(e) => { e.preventDefault(); if (remindAt) remind.mutate(remindAt, { onSuccess: () => setRemindAt("") }); }}>
           <Prop label="Remind me" htmlFor="p-remind">
             <div className="flex gap-1">
-              <input id="p-remind" type="datetime-local" className={QUIET} value={remindAt} onChange={(e) => setRemindAt(e.target.value)} />
+              <input id="p-remind" type="datetime-local" className={QUIET} value={remindAt} onChange={(e) => { setRemindAt(e.target.value); remind.reset(); }} />
               {remindAt && <button type="submit" className="btn h-8 flex-none px-2" disabled={remind.isPending}>Set</button>}
             </div>
           </Prop>
@@ -291,10 +316,11 @@ function Body({ t }: { t: TaskDetail }) {
       )}
       {!done && (
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <button className="btn h-8 justify-center" disabled={reschedule.isPending} onClick={() => reschedule.mutate(addDays(today, 1))}>Tomorrow</button>
-          <button className="btn h-8 justify-center" disabled={reschedule.isPending} onClick={() => reschedule.mutate(addDays(today, 7))}>Next week</button>
+          <button type="button" className="btn h-8 justify-center" onClick={() => reschedule.mutate(addDays(today, 1))}>Tomorrow</button>
+          <button type="button" className="btn h-8 justify-center" onClick={() => reschedule.mutate(addDays(today, 7))}>Next week</button>
         </div>
       )}
+      </fieldset>
 
       <div className="my-4 h-px bg-line" />
       <h2 className="mb-2 text-xs font-medium text-muted">Source</h2>
