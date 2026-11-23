@@ -69,7 +69,7 @@ export class TetherClient {
   }
 
   /** Exchange the 6-digit code shown in Tether's settings for the API token. */
-  async pair(code: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  async pair(code: string, opts: { flush?: boolean } = {}): Promise<{ ok: true } | { ok: false; message: string }> {
     try {
       const res = await this.fetchFn(`${API}/v1/pair`, {
         method: "POST",
@@ -82,7 +82,8 @@ export class TetherClient {
       }
       await this.storage.set("token", data.token);
       await this.storage.set("needsRepair", undefined);
-      await this.flush();
+      // The popup leaves flushing to the worker (one queue owner, one lock).
+      if (opts.flush !== false) await this.flush();
       return { ok: true };
     } catch {
       return { ok: false, message: "Tether isn't running. Open it on this PC and try again." };

@@ -836,7 +836,7 @@ mod tests {
             .unwrap();
         let s = NewSuggestion {
             kind: SuggestionKind::TaskUpdate,
-            origin: Origin::Claude,
+            origin: Origin::Ai,
             target_task_id: Some(t.id.clone()),
             payload: json!({ "addSubtasks": ["Fix validation", "Test Irish translations"] }),
             context: None,
@@ -852,6 +852,21 @@ mod tests {
         );
         db.write(|c| approve(c, &s.id, None)).unwrap();
         assert_eq!(db.read(|c| tasks::get(c, &t.id)).unwrap().subtask_count, 2);
+        let subs = db
+            .read(|c| {
+                tasks::list(
+                    c,
+                    &TaskFilter {
+                        parent_id: Some(t.id.clone()),
+                        ..Default::default()
+                    },
+                )
+            })
+            .unwrap();
+        assert!(
+            subs.iter().all(|x| x.source == crate::model::Source::Ai),
+            "source follows the suggestion's origin"
+        );
     }
 
     #[test]

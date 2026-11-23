@@ -33,17 +33,19 @@ function ago(iso: string) {
   return h < 24 ? `${h} h` : new Date(iso).toLocaleDateString("en-IE", { day: "numeric", month: "short" });
 }
 
-async function render() {
+async function render(keepMessage = false) {
   const page = await reachFromPage();
   const s = await send<Status>({ type: "status" });
   const online = s.online || page === "ok";
   const state = $("state");
   state.textContent = online ? "Tether is running" : "Can't reach Tether";
   state.className = `state ${online ? "" : "off"}`;
-  if (!online) {
+  if (keepMessage) {
+    // Leave the result of the action the user just took on screen.
+  } else if (!online) {
     say("Start Tether on this PC. If Chrome asks to allow access to devices on your local network, choose Allow, then reopen this popup.", "err");
   } else if (page === "ok" && !s.online) {
-    say("Chrome is blocking the background part of the extension. Allow local network access for Tether (site settings), then reload the extension.", "err");
+    say(`Chrome is blocking the Tether extension's background connection. Open chrome://settings/content/siteDetails?site=chrome-extension://${chrome.runtime.id} , set "Local network access" to Allow, then reload the extension.`, "err");
   }
   $("pair").hidden = s.paired;
   $("main").hidden = !s.paired;
@@ -78,11 +80,11 @@ $("pair-form").addEventListener("submit", async (e) => {
   const code = $<HTMLInputElement>("code").value.trim();
   if (!/^\d{6}$/.test(code)) return say("Enter the 6 digits shown in Tether.", "err");
   // Pair from the page (see reachFromPage), then let the worker send anything waiting.
-  const r = await popupClient.pair(code);
+  const r = await popupClient.pair(code, { flush: false });
   if (r.ok) await send({ type: "flush" }).catch(() => undefined);
   if (r.ok) say("Paired. Right-click any selected text to create a task.", "ok");
   else say(("message" in r && r.message) || "Pairing failed.", "err");
-  render();
+  render(true);
 });
 
 async function quick(kind: "task" | "note") {
