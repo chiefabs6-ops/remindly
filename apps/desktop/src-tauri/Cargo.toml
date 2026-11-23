@@ -27,7 +27,7 @@ tauri-plugin-autostart = "2.7.0"
 axum = "0.8.9"
 log = "0.4.35"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt", "time"] }
-rusqlite = { version = "0.43.0", features = ["bundled"] }
+rusqlite = { version = "0.43.0", features = ["bundled", "backup"] }
 ulid = "3.0.0"
 thiserror = "2.0.21"
 subtle = "2.6.1"

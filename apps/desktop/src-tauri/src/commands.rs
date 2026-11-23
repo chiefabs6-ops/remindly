@@ -345,3 +345,117 @@ pub fn reminder_snooze(s: Db, id: String, until: String) -> AppResult<()> {
 pub fn take_pending_route(p: tauri::State<'_, crate::scheduler::PendingRoute>) -> Option<String> {
     p.0.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
+
+// ---------- backups ----------
+
+/// Documents\Tether\Backups (falls back to the app data folder).
+pub fn default_backup_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
+    use tauri::Manager;
+    app.path()
+        .document_dir()
+        .map(|d| d.join("Tether").join("Backups"))
+        .or_else(|_| app.path().app_data_dir().map(|d| d.join("backups")))
+        .unwrap_or_else(|_| std::path::PathBuf::from("backups"))
+}
+
+fn backup_folder(app: &tauri::AppHandle, s: &AppState) -> AppResult<std::path::PathBuf> {
+    let cfg = s.db.read(crate::backup::BackupSettings::load)?;
+    Ok(cfg.folder(&default_backup_dir(app)))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupSettingsView {
+    #[serde(flatten)]
+    pub settings: crate::backup::BackupSettings,
+    pub folder: String,
+}
+
+#[tauri::command(async)]
+pub fn backup_settings_get(app: tauri::AppHandle, s: Db) -> AppResult<BackupSettingsView> {
+    let settings = s.db.read(crate::backup::BackupSettings::load)?;
+    let folder = settings
+        .folder(&default_backup_dir(&app))
+        .display()
+        .to_string();
+    Ok(BackupSettingsView { settings, folder })
+}
+
+#[tauri::command(async)]
+pub fn backup_settings_set(
+    app: tauri::AppHandle,
+    s: Db,
+    value: crate::backup::BackupSettings,
+) -> AppResult<BackupSettingsView> {
+    if !(1..=60).contains(&value.keep_daily) || value.keep_weekly > 52 {
+        return Err(AppError::invalid("keep 1-60 daily and 0-52 weekly backups"));
+    }
+    let dir = value.dir.trim();
+    if !dir.is_empty() && !std::path::Path::new(dir).is_absolute() {
+        return Err(AppError::invalid(
+            "the backup folder must be a full path, e.g. D:\\Backups\\Tether",
+        ));
+    }
+    let mut v = value.clone();
+    v.last_auto = s.db.read(crate::backup::BackupSettings::load)?.last_auto;
+    s.db.write(|c| v.save(c))?;
+    backup_settings_get(app, s)
+}
+
+#[tauri::command(async)]
+pub fn backups_list(app: tauri::AppHandle, s: Db) -> AppResult<Vec<crate::backup::BackupFile>> {
+    crate::backup::list(&backup_folder(&app, &s)?)
+}
+
+#[tauri::command(async)]
+pub fn backup_now(app: tauri::AppHandle, s: Db) -> AppResult<crate::backup::BackupFile> {
+    crate::backup::backup_now(&s.db, &backup_folder(&app, &s)?, "")
+}
+
+#[tauri::command(async)]
+pub fn backup_restore(
+    app: tauri::AppHandle,
+    s: Db,
+    name: String,
+) -> AppResult<crate::backup::BackupFile> {
+    use tauri::Emitter;
+    let safety = crate::backup::restore(&s.db, &backup_folder(&app, &s)?, &name)?;
+    let _ = app.emit(crate::DATA_CHANGED, ());
+    Ok(safety)
+}
+
+/// Write everything as JSON to Documents\Tether\Exports; returns the file path.
+#[tauri::command(async)]
+pub fn export_json(app: tauri::AppHandle, s: Db) -> AppResult<String> {
+    let dir = default_backup_dir(&app).with_file_name("Exports");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!(
+        "tether-export-{}.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    ));
+    let v = crate::backup::export_json(&s.db)?;
+    std::fs::write(&path, serde_json::to_string_pretty(&v)?)?;
+    Ok(path.display().to_string())
+}
+
+#[tauri::command(async)]
+pub fn db_health(s: Db) -> AppResult<String> {
+    crate::backup::quick_check(&s.db)
+}
+
+/// Show a backup or export in Explorer (folders under the app's own backup/export locations only).
+#[tauri::command(async)]
+pub fn reveal_path(app: tauri::AppHandle, s: Db, path: String) -> AppResult<()> {
+    let p = std::path::PathBuf::from(&path);
+    let backups = backup_folder(&app, &s)?;
+    let exports = default_backup_dir(&app).with_file_name("Exports");
+    if !(p.starts_with(&backups) || p.starts_with(&exports)) {
+        return Err(AppError::invalid(
+            "only backup and export files can be shown",
+        ));
+    }
+    std::process::Command::new("explorer.exe")
+        .arg(format!("/select,{}", p.display()))
+        .spawn()?;
+    Ok(())
+}

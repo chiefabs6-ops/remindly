@@ -44,6 +44,23 @@ export interface ReminderSettings {
   workDays: number[];
 }
 
+export interface BackupSettings {
+  autoDaily: boolean;
+  dir: string;
+  keepDaily: number;
+  keepWeekly: number;
+  lastAuto: string | null;
+  /** Resolved folder (read-only). */
+  folder?: string;
+}
+
+export interface BackupFile {
+  name: string;
+  path: string;
+  bytes: number;
+  takenAt: string;
+}
+
 type Args = Record<string, unknown>;
 type Invoke = <T>(cmd: string, args?: Args) => Promise<T>;
 
@@ -127,6 +144,14 @@ export const api = {
   takePendingRoute: () => call<string | null>("take_pending_route"),
   autostart: () => call<boolean>("autostart_get"),
   setAutostart: (enabled: boolean) => call<boolean>("autostart_set", { enabled }),
+  backupSettings: () => call<BackupSettings>("backup_settings_get"),
+  setBackupSettings: (value: BackupSettings) => call<BackupSettings>("backup_settings_set", { value }),
+  backups: () => call<BackupFile[]>("backups_list"),
+  backupNow: () => call<BackupFile>("backup_now"),
+  restoreBackup: (name: string) => call<BackupFile>("backup_restore", { name }),
+  exportJson: () => call<string>("export_json"),
+  dbHealth: () => call<string>("db_health"),
+  reveal: (path: string) => call<void>("reveal_path", { path }),
   codeProjects: () => call<CodeProject[]>("code_projects_list"),
   linkCodeProject: (id: string, projectId: string | null) =>
     call<CodeProject>("code_project_set_project", { id, projectId }),

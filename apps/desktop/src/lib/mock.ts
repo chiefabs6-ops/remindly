@@ -512,6 +512,26 @@ const handlers: Record<string, (a: Args) => unknown> = {
     store.settings.autostart = enabled;
     return enabled;
   },
+  backup_settings_get: () => ({
+    autoDaily: false, dir: "", keepDaily: 7, keepWeekly: 4, lastAuto: null,
+    ...(store.settings.backups as object | undefined),
+    folder: String.raw`C:\Users\you\Documents\Tether\Backups`,
+  }),
+  backup_settings_set: ({ value }) => {
+    store.settings.backups = value;
+    return { ...value, folder: value.dir || String.raw`C:\Users\you\Documents\Tether\Backups` };
+  },
+  backups_list: () => (store.settings.backupFiles as unknown[] | undefined) ?? [],
+  backup_now: () => {
+    const name = `tether-${new Date().toISOString().replace(/\D/g, "").slice(0, 8)}-${new Date().toISOString().replace(/\D/g, "").slice(8, 14)}.db`;
+    const f = { name, path: name, bytes: 98304, takenAt: new Date().toISOString().slice(0, 19).replace("T", " ") };
+    store.settings.backupFiles = [f, ...((store.settings.backupFiles as unknown[]) ?? [])];
+    return f;
+  },
+  backup_restore: ({ name }) => ({ name: `before-restore-${name}`, path: "", bytes: 0, takenAt: "" }),
+  export_json: () => String.raw`C:\Users\you\Documents\Tether\Exports\tether-export.json`,
+  db_health: () => "ok",
+  reveal_path: () => undefined,
   api_info: () => ({ url: "http://127.0.0.1:47821", tokenHint: "3f9a", dataDir: "%APPDATA%\\ie.tether.app" }),
 };
 

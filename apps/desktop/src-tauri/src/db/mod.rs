@@ -39,6 +39,19 @@ impl Db {
         self.conn.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// Replace the whole database with the contents of another SQLite file (online backup API).
+    pub fn restore_from(&self, path: &Path) -> AppResult<()> {
+        let mut conn = self.lock();
+        conn.restore(
+            rusqlite::MAIN_DB,
+            path,
+            None::<fn(rusqlite::backup::Progress)>,
+        )?;
+        // The restored file may be an older schema: bring it up to date.
+        migrate(&mut conn)?;
+        Ok(())
+    }
+
     /// Run read-only or single-statement work.
     pub fn read<T>(&self, f: impl FnOnce(&Connection) -> AppResult<T>) -> AppResult<T> {
         let conn = self.lock();

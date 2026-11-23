@@ -41,7 +41,29 @@ pub fn start(app: AppHandle, state: AppState) {
     });
 }
 
+/// Daily automatic backup, only when the user switched it on.
+fn auto_backup(app: &AppHandle, state: &AppState) {
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let Ok(mut cfg) = state.db.read(crate::backup::BackupSettings::load) else {
+        return;
+    };
+    if !cfg.auto_daily || cfg.last_auto.as_deref() == Some(today.as_str()) {
+        return;
+    }
+    let folder = cfg.folder(&crate::commands::default_backup_dir(app));
+    match crate::backup::backup_now(&state.db, &folder, "auto") {
+        Ok(b) => {
+            log::info!("automatic backup {}", b.name);
+            let _ = crate::backup::prune(&folder, cfg.keep_daily, cfg.keep_weekly);
+            cfg.last_auto = Some(today);
+            let _ = state.db.write(|c| cfg.save(c));
+        }
+        Err(e) => log::warn!("automatic backup failed: {e}"),
+    }
+}
+
 fn run_once(app: &AppHandle, state: &AppState) {
+    auto_backup(app, state);
     let now = Local::now();
     let mut gap = Duration::zero();
     let result = state.db.write(|c| {
