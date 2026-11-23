@@ -454,7 +454,7 @@ pub fn approve(conn: &Connection, id: &str, edited: Option<Value>) -> AppResult<
             let u: SuggestedUpdate = serde_json::from_value(payload)
                 .map_err(|e| AppError::invalid(format!("invalid task_update payload: {e}")))?;
             check_update(&u)?;
-            apply_update(conn, &target, &u, s.origin.actor())?;
+            apply_update(conn, &target, &u, s.origin)?;
             Approved {
                 kind: s.kind,
                 id: target,
@@ -469,7 +469,8 @@ pub fn approve(conn: &Connection, id: &str, edited: Option<Value>) -> AppResult<
 }
 
 /// Apply an approved update. History records the suggesting client as the actor.
-fn apply_update(conn: &Connection, id: &str, u: &SuggestedUpdate, actor: Actor) -> AppResult<()> {
+fn apply_update(conn: &Connection, id: &str, u: &SuggestedUpdate, origin: Origin) -> AppResult<()> {
+    let actor = origin.actor();
     let t = tasks::get(conn, id)?;
     let mut input = tasks::to_input(&t);
     if let Some(title) = &u.title {
@@ -508,7 +509,7 @@ fn apply_update(conn: &Connection, id: &str, u: &SuggestedUpdate, actor: Actor) 
         };
         let origin = TaskOrigin {
             parent_id: Some(id.to_string()),
-            source: Some(crate::model::Source::Claude),
+            source: Some(origin.source()),
             ..Default::default()
         };
         tasks::create(conn, &sub, &origin, actor)?;

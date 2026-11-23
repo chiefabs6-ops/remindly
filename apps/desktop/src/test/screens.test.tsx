@@ -147,7 +147,7 @@ describe("Local AI", () => {
   });
 
   it("when on, breaks a task into chosen subtasks", async () => {
-    await mockInvoke("ai_settings_set", { value: { enabled: true, url: "http://127.0.0.1:11434", model: "qwen2.5:3b" } });
+    await mockInvoke("ai_settings_set", { value: { enabled: true, url: "http://127.0.0.1:11434", model: "qwen2.5:1.5b" } });
     const user = userEvent.setup();
     const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
     window.location.hash = `#/?task=${t.id}`;
