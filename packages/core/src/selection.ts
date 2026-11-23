@@ -76,14 +76,12 @@ export function suggestFromSelection(
   }
   title = sentenceCase(tidy(title)) || "Follow up";
   if (title.length > MAX_TITLE) {
-    description = description ?? sentenceCase(text);
     title = clip(title, MAX_TITLE);
     confidence.title = 0.4;
   }
-  // Longer selections keep the rest as description so nothing is lost.
-  if (original.length > firstSentence.length + 1 && !description) {
-    description = original;
-  }
+  // The full text is kept once, as the selection. The description holds only what the title leaves out.
+  const rest = original.slice(firstSentence.length).trim();
+  if (rest && !description) description = rest;
 
   return {
     payload: {

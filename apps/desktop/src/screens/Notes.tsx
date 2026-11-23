@@ -18,39 +18,46 @@ function Editor({ note, projects, onDeleted }: { note: Note; projects: Project[]
   const dirty = f.title !== note.title || f.bodyMd !== note.bodyMd || f.kind !== note.kind || (f.projectId || null) !== note.projectId;
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
 
+  const lbl = "sr-only text-xs font-medium text-muted xl:not-sr-only xl:mb-1.5 xl:block";
   return (
-    <form className="mx-auto flex h-full max-w-[760px] flex-col gap-3 px-6 py-6"
+    <form className="flex h-full flex-col xl:flex-row"
       onSubmit={(e) => { e.preventDefault(); save.mutate(undefined); }}>
-      <label htmlFor="n-title" className="sr-only">Note title</label>
-      <input id="n-title" className="bg-transparent text-xl font-semibold outline-none" placeholder="Untitled note" value={f.title} onChange={set("title")} />
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="n-kind" className="sr-only">Kind</label>
-        <select id="n-kind" className="field h-8 w-auto text-[13px]" value={f.kind} onChange={set("kind")}>
-          {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <label htmlFor="n-project" className="sr-only">Project</label>
-        <select id="n-project" className="field h-8 w-auto text-[13px]" value={f.projectId} onChange={set("projectId")}>
-          <option value="">No project</option>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <span className="ml-auto text-xs text-muted">Edited {ago(note.updatedAt)}</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-3 px-8 py-6">
+        <label htmlFor="n-title" className="sr-only">Note title</label>
+        <input id="n-title" className="bg-transparent text-xl font-semibold outline-none" placeholder="Untitled note" value={f.title} onChange={set("title")} />
+        <label htmlFor="n-body" className="sr-only">Note</label>
+        <textarea id="n-body" className="field min-h-[320px] flex-1 font-normal" value={f.bodyMd} onChange={set("bodyMd")}
+          placeholder={"Write freely. Lines starting with “- ” become tasks when you convert the note."} />
       </div>
-      <label htmlFor="n-body" className="sr-only">Note</label>
-      <textarea id="n-body" className="field min-h-[320px] flex-1 font-normal" value={f.bodyMd} onChange={set("bodyMd")}
-        placeholder={"Write freely. Lines starting with “- ” become tasks when you convert the note."} />
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="submit" className="btn btn-primary" disabled={!dirty || save.isPending}>Save note</button>
-        <button type="button" className="btn" disabled={dirty || convert.isPending}
-          title={dirty ? "Save first" : "One task per “- ” line, or one task from the title"}
-          onClick={() => convert.mutate(undefined, { onSuccess: (ts) => navigate(ts[0] ? `/task/${ts[0].id}` : "/tasks") })}>
-          Turn into tasks
-        </button>
-        <button type="button" className="btn btn-ghost btn-danger ml-auto"
-          onClick={() => confirm(`Delete the note “${note.title || "Untitled"}”?`) && remove.mutate(undefined, { onSuccess: onDeleted })}>
-          Delete
-        </button>
-      </div>
-      {(save.isError || convert.isError) && <p className="text-negative">{errorMessage(save.error ?? convert.error)}</p>}
+      <aside className="flex flex-wrap items-center gap-2 px-8 pb-6 xl:w-[280px] xl:flex-none xl:flex-col xl:items-stretch xl:gap-4 xl:overflow-y-auto xl:border-l xl:border-line xl:p-5">
+        <div>
+          <label htmlFor="n-kind" className={lbl}>Kind</label>
+          <select id="n-kind" className="field h-8 w-auto text-[13px] xl:w-full" value={f.kind} onChange={set("kind")}>
+            {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="n-project" className={lbl}>Project</label>
+          <select id="n-project" className="field h-8 w-auto text-[13px] xl:w-full" value={f.projectId} onChange={set("projectId")}>
+            <option value="">No project</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+        <span className="text-xs text-muted max-xl:ml-auto">Edited {ago(note.updatedAt)}</span>
+        <div className="flex w-full flex-wrap items-center gap-2 xl:flex-col xl:items-stretch xl:border-t xl:border-line xl:pt-4">
+          <button type="submit" className="btn btn-primary" disabled={!dirty || save.isPending}>Save note</button>
+          <button type="button" className="btn" disabled={dirty || convert.isPending}
+            title={dirty ? "Save first" : "One task per “- ” line, or one task from the title"}
+            onClick={() => convert.mutate(undefined, { onSuccess: (ts) => navigate(ts[0] ? `/task/${ts[0].id}` : "/tasks") })}>
+            Turn into tasks
+          </button>
+          <button type="button" className="btn btn-ghost btn-danger max-xl:ml-auto"
+            onClick={() => confirm(`Delete the note “${note.title || "Untitled"}”?`) && remove.mutate(undefined, { onSuccess: onDeleted })}>
+            Delete
+          </button>
+        </div>
+        {(save.isError || convert.isError) && <p className="w-full text-negative">{errorMessage(save.error ?? convert.error)}</p>}
+      </aside>
     </form>
   );
 }

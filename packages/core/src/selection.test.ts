@@ -30,18 +30,19 @@ describe("suggestFromSelection", () => {
     expect(s.confidence).toEqual({});
   });
 
-  it("clips long text and keeps the full text in the description", () => {
+  it("clips long text and keeps the full text once, as the selection", () => {
     const long = "Review the proposal for the new learning management integration and check every section against the procurement rules";
     const s = suggestFromSelection(long, {}, REF);
     expect(s.payload.title.length).toBeLessThanOrEqual(81);
     expect(s.payload.title.endsWith("…")).toBe(true);
-    expect(s.payload.description).toContain("procurement rules");
+    expect(s.payload.description).toBeNull();
+    expect(s.payload.sourceSelection).toContain("procurement rules");
   });
 
   it("uses the first sentence for the title and keeps the rest", () => {
     const s = suggestFromSelection("Book the room for Thursday. We need space for twelve people.", {}, REF);
     expect(s.payload.title).toBe("Book the room");
-    expect(s.payload.description).toContain("twelve people");
+    expect(s.payload.description).toBe("We need space for twelve people.");
     expect(s.payload.dueDate).toBe("2026-11-26");
   });
 

@@ -125,7 +125,7 @@ export function Layout() {
       </nav>
 
       {/* Top bar, on the same tinted frame as the sidebar (no rule between them). */}
-      <div className="flex min-w-0 items-center gap-3 px-2 max-lg:px-4">
+      <div className="flex min-w-0 items-center gap-3 pr-4 pl-2 max-lg:px-4">
         <span className="flex items-center gap-2 font-semibold lg:hidden"><Mark /> Tether</span>
         <form
           role="search"
@@ -141,7 +141,7 @@ export function Layout() {
             placeholder="Search tasks and notes" className="field h-8 border-line pl-8 text-[13px]" />
           <kbd className="pointer-events-none absolute top-[7px] right-2.5 text-xs text-faint">Ctrl K</kbd>
         </form>
-        <button className="btn btn-primary ml-auto h-8" onClick={() => { navigate("/"); setTimeout(() => document.getElementById("quick-add")?.focus(), 50); }}>
+        <button className="btn btn-primary ml-auto h-8 flex-none whitespace-nowrap" onClick={() => { navigate("/"); setTimeout(() => document.getElementById("quick-add")?.focus(), 50); }}>
           <Plus size={14} /> New task
         </button>
       </div>
