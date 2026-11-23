@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import type { NoteInput, Project, SuggestedTask, Suggestion } from "@tether/core";
-import { QuickAdd } from "../components/QuickAdd";
-import { TaskPanel } from "../components/TaskPanel";
-import { SourceIcon, TaskList } from "../components/TaskRow";
+import { SourceIcon } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
-import { ago, dueLabel, hostOf } from "../lib/format";
-import { useAction, useAiEnabled, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
+import { ago, hostOf } from "../lib/format";
+import { useAction, useAiEnabled, useTask } from "../lib/queries";
 
-const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
-const title = (s: Suggestion) =>
+export const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
+export const suggestionTitle = (s: Suggestion) =>
   s.kind === "task_update"
     ? "Change to an existing task"
     : (s.payload as SuggestedTask).title || (s.payload as NoteInput).title || "Untitled note";
@@ -29,7 +27,7 @@ const PRI = ["None", "Low", "Medium", "High"];
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "none" : String(v).replace("_", " "));
 
 /** A proposed change to an existing task: the task, then each field old → new. */
-function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
+export function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
   const target = useTask(s.targetTaskId);
   const p = s.payload as UpdatePayload;
   const approve = useAction(() => api.approveSuggestion(s.id));
@@ -44,7 +42,7 @@ function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
     if (p.priority !== undefined) rows.push(["Priority", PRI[t.priority], PRI[p.priority] ?? String(p.priority)]);
   }
   return (
-    <article className="mx-auto max-w-[720px] px-6 py-6" aria-label="Review change">
+    <article className="px-5 py-4" aria-label="Review change">
       <p className="mb-1 text-xs text-muted">From {ORIGIN[s.origin]} · {ago(s.createdAt)}</p>
       <h2 className="mb-4 text-xl font-semibold">Apply this change?</h2>
       {target.isError ? (
@@ -55,7 +53,7 @@ function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
         <>
           <p className="label">Task</p>
           <p className="mb-4 font-medium">
-            <Link className="underline" to={`/tasks?task=${t.id}`}>{t.title}</Link>
+            <Link className="underline" to={`/task/${t.id}`}>{t.title}</Link>
           </p>
           {rows.length > 0 && (
             <table className="mb-4 w-full text-left">
@@ -116,7 +114,7 @@ function Context({ ctx }: { ctx: Record<string, unknown> }) {
   );
 }
 
-function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; onDone: () => void }) {
+export function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; onDone: () => void }) {
   const p = s.payload as SuggestedTask;
   const initialProject = p.projectId ?? projects.find((x) => x.name.toLowerCase() === p.projectName?.toLowerCase())?.id ?? "";
   const [form, setForm] = useState({ title: p.title ?? "", description: p.description ?? "", dueDate: p.dueDate ?? "", projectId: initialProject, priority: p.priority ?? 0 });
@@ -147,7 +145,7 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
   const deadlineGuess = s.confidence?.dueDate !== undefined && s.confidence.dueDate < 0.8;
 
   return (
-    <article className="mx-auto max-w-[720px] px-6 py-6" aria-label="Review suggestion">
+    <article className="px-5 py-4" aria-label="Review suggestion">
       <p className="mb-1 flex items-center gap-1.5 text-xs text-muted">
         <SourceIcon source={s.origin === "chrome" ? "chrome" : s.origin === "claude" ? "claude" : "ai"} />
         From {ORIGIN[s.origin]} · {ago(s.createdAt)}
@@ -166,7 +164,7 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
       {s.possibleDuplicateOf && (
         <p className="mb-4 flex items-start gap-2 rounded-[8px] bg-[var(--pill-warning-bg)] px-3 py-2 text-[var(--pill-warning-ink)]">
           <AlertTriangle size={15} className="mt-0.5 flex-none" />
-          <span>Looks like a task you already have. <Link className="underline" to={`/tasks?task=${s.possibleDuplicateOf}`}>Open it</Link> before approving.</span>
+          <span>Looks like a task you already have. <Link className="underline" to={`/task/${s.possibleDuplicateOf}`}>Open it</Link> before approving.</span>
         </p>
       )}
 
@@ -176,7 +174,7 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
             <label className="label" htmlFor="s-title">Title</label>
             <input id="s-title" className="field text-base font-medium" value={form.title} onChange={set("title")} />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="s-due">Due date {deadlineGuess && <span className="pill pill-warning ml-1">Guessed</span>}</label>
               <input id="s-due" type="date" className="field" value={form.dueDate} onChange={set("dueDate")} />
@@ -228,93 +226,5 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
         {(approve.isError || dismiss.isError) && <span className="text-negative">{errorMessage(approve.error ?? dismiss.error)}</span>}
       </div>
     </article>
-  );
-}
-
-export function InboxScreen() {
-  const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "unsorted" ? "unsorted" : "suggestions";
-  const sugg = useSuggestions("pending");
-  const unsorted = useTasks({ statuses: ["inbox"], topLevelOnly: true });
-  const projects = useProjects();
-  const ps = projects.data ?? [];
-  const list = sugg.data ?? [];
-  const selectedId = params.get("s") ?? list[0]?.id ?? null;
-  const selected = list.find((s) => s.id === selectedId) ?? list[0];
-  const openTask = params.get("task");
-
-  const tabCls = (on: boolean) => `h-9 border-b-2 px-1 ${on ? "border-ink font-medium" : "border-transparent text-muted hover:text-ink"}`;
-
-  return (
-    <div className="flex h-full flex-col">
-      <header className="px-6 pt-6 lg:px-8">
-        <h1 className="text-2xl font-semibold tracking-[-0.01em]">Inbox</h1>
-        <p className="mt-1 text-muted">Everything captured lands here first. Nothing becomes an active task until you approve it.</p>
-        <div className="mt-4 flex gap-5 border-b border-line" role="tablist">
-          <button role="tab" aria-selected={tab === "suggestions"} className={tabCls(tab === "suggestions")} onClick={() => setParams({})}>
-            Suggestions <span className="num text-muted">{list.length}</span>
-          </button>
-          <button role="tab" aria-selected={tab === "unsorted"} className={tabCls(tab === "unsorted")} onClick={() => setParams({ tab: "unsorted" })}>
-            Unsorted <span className="num text-muted">{unsorted.data?.length ?? 0}</span>
-          </button>
-        </div>
-      </header>
-
-      {tab === "suggestions" ? (
-        <div className="flex min-h-0 flex-1">
-          <ul className="w-[340px] flex-none overflow-y-auto border-r border-line p-2 max-md:w-full" aria-label="Pending suggestions">
-            {sugg.isError && <li className="p-3 text-negative">{errorMessage(sugg.error)}</li>}
-            {list.length === 0 && !sugg.isLoading && (
-              <li className="m-2 rounded-[8px] border border-dashed border-line p-3 text-muted">
-                No suggestions waiting. Right-click text in Chrome or ask Claude Code to save unfinished work, and it appears here.
-              </li>
-            )}
-            {list.map((s) => (
-              <li key={s.id}>
-                <button onClick={() => setParams({ s: s.id })}
-                  className={`block w-full rounded-[6px] px-3 py-2.5 text-left ${selected?.id === s.id ? "bg-active" : "hover:bg-raised"}`}>
-                  <span className="flex items-baseline gap-2">
-                    <span className="flex-1 truncate font-medium">{title(s)}</span>
-                    <span className="flex-none text-xs text-muted">{ago(s.createdAt)}</span>
-                  </span>
-                  <span className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
-                    {ORIGIN[s.origin]}
-                    {(s.payload as SuggestedTask).dueDate && <span>· due {dueLabel({ dueDate: (s.payload as SuggestedTask).dueDate ?? null, dueTime: null })}</span>}
-                    {s.possibleDuplicateOf && <span className="pill pill-warning ml-auto">Possible duplicate</span>}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="min-w-0 flex-1 overflow-y-auto max-md:hidden">
-            {selected ? (
-              selected.kind === "task_update" ? (
-                <UpdateReview key={selected.id} s={selected} onDone={() => setParams({})} />
-              ) : (
-                <Review key={selected.id} s={selected} projects={ps} onDone={() => setParams({})} />
-              )
-            ) : (
-              <p className="p-8 text-muted">Select a suggestion to review it.</p>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 overflow-y-auto px-6 py-4 lg:px-8">
-            <div className="mb-4"><QuickAdd projects={ps} status="inbox" placeholder="Jot something down — sort it later" /></div>
-            <div className="rounded-[8px] border border-line bg-surface p-3">
-              <TaskList tasks={unsorted.data ?? []} projects={ps} selectedId={openTask}
-                onOpen={(id) => setParams({ tab: "unsorted", task: id })}
-                empty="Nothing unsorted. Quick notes you add here wait until you give them a date or project." />
-            </div>
-          </div>
-          {openTask && (
-            <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-              <TaskPanel key={openTask} id={openTask} projects={ps} onClose={() => setParams({ tab: "unsorted" })} onOpen={(id) => setParams({ tab: "unsorted", task: id })} />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   );
 }

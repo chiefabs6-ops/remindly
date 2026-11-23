@@ -91,7 +91,7 @@ async function quick(kind: "task" | "note") {
   const box = $<HTMLTextAreaElement>("quick");
   const r = await send<"sent" | "queued" | { error: string }>({ type: "quick", kind, text: box.value });
   if (r === "sent") {
-    say(kind === "task" ? "Task sent to your Tether inbox." : "Note sent to your Tether inbox.", "ok");
+    say(kind === "task" ? "Task sent to Tether for your approval." : "Note sent to Tether for your approval.", "ok");
     box.value = "";
   } else if (r === "queued") {
     say("Saved. It will send when Tether is open.", "ok");

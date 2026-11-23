@@ -89,6 +89,8 @@ pub fn router(state: ApiState) -> Router {
             state.clone(),
             check_host_and_origin,
         ))
+        // Outside the Host/Origin checks: CORS for the Chrome extension, so even refusals are readable by it.
+        .layer(middleware::from_fn(cors))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(state)
 }
@@ -151,6 +153,60 @@ async fn check_host_and_origin(State(s): State<ApiState>, req: Request, next: Ne
     next.run(req).await
 }
 
+/// `chrome-extension://<32 letters a-p>`, the only browser origin Tether talks to.
+fn extension_origin(headers: &HeaderMap) -> Option<String> {
+    let o = headers.get(header::ORIGIN)?.to_str().ok()?;
+    let id = o.strip_prefix("chrome-extension://")?;
+    (id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))).then(|| o.to_string())
+}
+
+/// Chrome applies CORS (and Private Network Access) to the extension's requests, so answer its
+/// preflights and label responses for that origin. Websites never get CORS headers, so a page in
+/// the browser still cannot read anything from the API. The token and allow-list checks still
+/// apply to every real request.
+async fn cors(req: Request, next: Next) -> Response {
+    let origin = extension_origin(req.headers());
+    if req.method() == axum::http::Method::OPTIONS {
+        let Some(o) = origin else {
+            return refuse(StatusCode::FORBIDDEN, "forbidden", "origin not allowed");
+        };
+        if !host_ok(req.headers()) {
+            return refuse(StatusCode::FORBIDDEN, "forbidden", "bad host");
+        }
+        return (
+            StatusCode::NO_CONTENT,
+            [
+                (header::ACCESS_CONTROL_ALLOW_ORIGIN, o),
+                (
+                    header::ACCESS_CONTROL_ALLOW_METHODS,
+                    "GET, POST".to_string(),
+                ),
+                (
+                    header::ACCESS_CONTROL_ALLOW_HEADERS,
+                    "authorization, content-type".to_string(),
+                ),
+                (header::ACCESS_CONTROL_MAX_AGE, "600".to_string()),
+                (header::VARY, "Origin".to_string()),
+                (
+                    header::HeaderName::from_static("access-control-allow-private-network"),
+                    "true".to_string(),
+                ),
+            ],
+        )
+            .into_response();
+    }
+    let mut res = next.run(req).await;
+    if let Some(o) = origin
+        && let Ok(v) = header::HeaderValue::from_str(&o)
+    {
+        res.headers_mut()
+            .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, v);
+        res.headers_mut()
+            .insert(header::VARY, header::HeaderValue::from_static("Origin"));
+    }
+    res
+}
+
 async fn require_token(State(s): State<ApiState>, req: Request, next: Next) -> Response {
     let presented = req
         .headers()
@@ -186,17 +242,11 @@ async fn pair(
     headers: HeaderMap,
     Json(body): Json<PairBody>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let origin = headers
-        .get(header::ORIGIN)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    let id = origin.strip_prefix("chrome-extension://").unwrap_or("");
-    if id.len() != 32 || !id.bytes().all(|b| (b'a'..=b'p').contains(&b)) {
+    let Some(origin) = extension_origin(&headers) else {
         return Err(AppError::invalid(
             "Only the Tether Chrome extension can pair.",
         ));
-    }
+    };
     let token = s.app.redeem_pairing(&body.code)?;
     let db = s.app.db.clone();
     blocking(move || {
@@ -380,6 +430,90 @@ mod tests {
     }
 
     const EXT: &str = "chrome-extension://elloobjbbdkoimibpcojhdgeocooibnl";
+
+    #[tokio::test]
+    async fn cors_only_for_the_extension() {
+        let (r, _, _, dir) = setup();
+        let pre = |origin: &str| {
+            req("OPTIONS", "/v1/pair")
+                .header(header::ORIGIN, origin)
+                .header("access-control-request-method", "POST")
+                .header("access-control-request-private-network", "true")
+                .body(Body::empty())
+                .unwrap()
+        };
+        let res = r.clone().oneshot(pre(EXT)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        assert_eq!(res.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], EXT);
+        assert_eq!(
+            res.headers()["access-control-allow-private-network"],
+            "true"
+        );
+        let web = r
+            .clone()
+            .oneshot(pre("https://evil.example.com"))
+            .await
+            .unwrap();
+        assert_eq!(web.status(), StatusCode::FORBIDDEN);
+        assert!(
+            web.headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none()
+        );
+        // A real request from the extension is labelled for it, even when refused.
+        let get = req("GET", "/v1/projects")
+            .header(header::ORIGIN, EXT)
+            .body(Body::empty())
+            .unwrap();
+        let res = r.clone().oneshot(get).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN, "not paired yet");
+        assert_eq!(res.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], EXT);
+        assert_eq!(res.headers()[header::VARY], "Origin");
+        // Websites never get CORS headers on real requests either.
+        let web_get = req("GET", "/v1/health")
+            .header(header::ORIGIN, "https://evil.example.com")
+            .body(Body::empty())
+            .unwrap();
+        let res = r.clone().oneshot(web_get).await.unwrap();
+        assert!(
+            res.headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none()
+        );
+        // Preflight still checks Host (DNS rebinding).
+        let bad_host = Request::builder()
+            .method("OPTIONS")
+            .uri("/v1/pair")
+            .header(header::HOST, "evil.example.com:47821")
+            .header(header::ORIGIN, EXT)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            r.clone().oneshot(bad_host).await.unwrap().status(),
+            StatusCode::FORBIDDEN
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn extension_origin_shape() {
+        let h = |o: &str| {
+            let mut m = HeaderMap::new();
+            m.insert(header::ORIGIN, o.parse().unwrap());
+            extension_origin(&m)
+        };
+        assert!(h(EXT).is_some());
+        for bad in [
+            "chrome-extension://ELLOOBJBBDKOIMIBPCOJHDGEOCOOIBNL",
+            "chrome-extension://elloobjbbdkoimibpcojhdgeocooibn",
+            "chrome-extension://elloobjbbdkoimibpcojhdgeocooibnlx",
+            "chrome-extension://zzloobjbbdkoimibpcojhdgeocooibnl",
+            "chrome-extension://elloobjbbdkoimibpcojhdgeocooibnl/",
+            "https://elloobjbbdkoimibpcojhdgeocooibnl",
+        ] {
+            assert!(h(bad).is_none(), "{bad}");
+        }
+    }
 
     #[tokio::test]
     async fn pairing_returns_token_and_allows_the_extension_origin() {

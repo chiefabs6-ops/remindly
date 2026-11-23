@@ -1,71 +1,85 @@
 @import "tailwindcss";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
 
 /*
-  Tether — "achromatic ledger" app style (.taste-skill/direction.json, seed 425170490).
-  The chrome carries no colour. One data hue (--today) marks today's work; --negative marks overdue.
-  Face: a blue-grey ledger ground (#f2f4f7) instead of the kit's #f8f8f8.
-  Grid: 232px sidebar + fluid canvas, 24px gutters, one 12px gap everywhere.
+  Tether — "framed sheet" app style (mockup B) with project tiles from mockup C.
+  The frame (sidebar + top bar) is one tinted ground; the work sits on a white sheet with a 1px edge
+  and 16px corners, no shadow. Teal (--today) marks today's data; red only for overdue.
+  Projects: pale tile + dark ink of the same hue (--tone-*).
 */
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  --ground: #f2f4f7;
+  --ground: #eef2f5;
   --surface: #ffffff;
-  --raised: #f7f8fa;
-  --active: #e4e7ec;
-  --border: #e3e6ea;
-  --rule: #eef0f3;
-  --control: #d0d4da;
-  --text: #0a0a0a;
-  --muted: #5f6368;
-  --faint: #6b6b6b;
-  --primary: #141414;
+  --raised: #f4f6f8;
+  --active: #e3e8ec;
+  --border: #e5e8eb;
+  --rule: #eff1f3;
+  --control: #cdced1;
+  --text: #131416;
+  --muted: #5d5f60;
+  --faint: #6b6e70;
+  --primary: #131416;
   --primary-ink: #ffffff;
-  --today: #1d5fbf;
-  --positive: #2e7d32;
+  --today: #1b6c80;
+  --positive: #1e7b4f;
   --negative: #c4242a;
-  --pill-neutral-bg: #eceef1;
-  --pill-neutral-ink: #3d3d3d;
+  --pill-neutral-bg: #ebedee;
+  --pill-neutral-ink: #353736;
   --pill-negative-bg: #ffedea;
   --pill-negative-ink: #831c1e;
-  --pill-today-bg: #e6eefa;
-  --pill-today-ink: #123c7a;
+  --pill-today-bg: #dff0f4;
+  --pill-today-ink: #0f4a59;
   --pill-warning-bg: #fffbeb;
   --pill-warning-ink: #92400e;
+  --tone-blue-bg: #dcf1ff; --tone-blue-ink: #0a3a80;
+  --tone-amber-bg: #fdecd3; --tone-amber-ink: #7a3d00;
+  --tone-green-bg: #e4f3ea; --tone-green-ink: #1f5a36;
+  --tone-teal-bg: #dff4f2; --tone-teal-ink: #0f5450;
+  --tone-rose-bg: #fde7ec; --tone-rose-ink: #8a1c3c;
+  --tone-slate-bg: #e8ecf1; --tone-slate-ink: #2d3a4a;
+  --tone-stone-bg: #f1ede6; --tone-stone-ink: #55462f;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --ground: #000000;
-  --surface: #111111;
-  --raised: #171717;
-  --active: #242424;
-  --border: #222222;
-  --rule: #1a1a1a;
-  --control: #444444;
-  --text: #ffffff;
-  --muted: #b4b4b4;
-  --faint: #949494;
-  --primary: #ffffff;
-  --primary-ink: #000000;
-  --today: #6aa1f0;
+  --ground: #0b0c0d;
+  --surface: #131415;
+  --raised: #1a1c1e;
+  --active: #25282b;
+  --border: #26292c;
+  --rule: #1c1e20;
+  --control: #3e4246;
+  --text: #f2f3f4;
+  --muted: #b0b4b8;
+  --faint: #8f9498;
+  --primary: #f2f3f4;
+  --primary-ink: #0b0c0d;
+  --today: #5fb3c9;
   --positive: #3fc07a;
   --negative: #e5566f;
-  --pill-neutral-bg: #222222;
-  --pill-neutral-ink: #d4d4d4;
+  --pill-neutral-bg: #25282b;
+  --pill-neutral-ink: #d4d6d8;
   --pill-negative-bg: #2c1a20;
   --pill-negative-ink: #f08a9b;
-  --pill-today-bg: #14243a;
-  --pill-today-ink: #a8c8f5;
+  --pill-today-bg: #12282e;
+  --pill-today-ink: #9fd6e3;
   --pill-warning-bg: #2a2110;
   --pill-warning-ink: #f0c36d;
+  --tone-blue-bg: #14243a; --tone-blue-ink: #a8c8f5;
+  --tone-amber-bg: #2d2111; --tone-amber-ink: #f0c36d;
+  --tone-green-bg: #16291d; --tone-green-ink: #9fd9b3;
+  --tone-teal-bg: #10292a; --tone-teal-ink: #8fd9d2;
+  --tone-rose-bg: #2e1520; --tone-rose-ink: #f3a6bb;
+  --tone-slate-bg: #1f2630; --tone-slate-ink: #c5cfdb;
+  --tone-stone-bg: #29241c; --tone-stone-ink: #d9ccb6;
   color-scheme: dark;
 }
 
 @theme inline {
-  --font-sans: "Geist Variable", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Segoe UI", system-ui, sans-serif;
   --color-ground: var(--ground);
   --color-surface: var(--surface);
   --color-raised: var(--raised);
@@ -82,6 +96,7 @@
   --color-positive: var(--positive);
   --color-negative: var(--negative);
   --radius-card: 8px;
+  --radius-sheet: 16px;
   --radius-control: 6px;
 }
 
@@ -190,4 +205,22 @@ textarea.field {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+@layer components {
+  /* Project chip: pale tile of the project's hue with its dark as ink (style set inline from colors.ts). */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    white-space: nowrap;
+    max-width: 180px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }

@@ -1,3 +1,4 @@
+import { toneDot } from "../lib/colors";
 import { api } from "../lib/api";
 import { useAction, useProjects } from "../lib/queries";
 import { ProjectForm } from "./Projects";
@@ -17,7 +18,7 @@ export function WelcomeScreen() {
           <ul className="mt-4" aria-label="Your projects">
             {list.map((p) => (
               <li key={p.id} className="flex h-9 items-center gap-2.5">
-                <span className="size-2.5 rounded-full" style={{ background: p.color ?? "var(--faint)" }} />
+                <span className="size-2.5 rounded-full" style={{ background: toneDot(p.color) }} />
                 {p.name}
               </li>
             ))}

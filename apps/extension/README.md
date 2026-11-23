@@ -1,7 +1,7 @@
 # Tether for Chrome
 
 Right-click selected text on any page and choose **Create Task**. The capture goes to the Tether
-desktop app on this PC (`http://127.0.0.1:47821`) and waits in its Inbox until you approve it.
+desktop app on this PC (`http://127.0.0.1:47821`) and waits on Tether's Today screen until you approve it.
 If Tether is closed, captures are kept in the extension and sent when it is running again.
 
 ## Install (unpacked, for this PC)
@@ -11,8 +11,8 @@ If Tether is closed, captures are kept in the extension and sent when it is runn
 3. In Tether, open **Settings → Chrome** and press **Pair Chrome**.
 4. Click the Tether icon in Chrome's toolbar and type the 6-digit code (valid 2 minutes).
 
-The manifest carries a fixed public `key`, so the extension ID is always
-`elloobjbbdkoimibpcojhdgeocooibnl` wherever the folder lives. Pairing adds that origin to
+The manifest carries a fixed public `key` meant to keep the extension ID stable. Check the ID Chrome actually
+shows on `chrome://extensions`: if it changes (for example after moving the folder), pair again. Pairing adds that origin to
 Tether's allow-list; **Unpair all** in Tether's settings removes it and issues a new token.
 
 ## Permissions
@@ -21,3 +21,6 @@ Tether's allow-list; **Unpair all** in Tether's settings removes it and issues a
 `scripting` (read the selection), `storage` (token, offline queue, last 10 captures), `alarms`
 (retry the queue every minute), and host access to `http://127.0.0.1/*` only. No access to the
 pages you visit beyond the one you right-click.
+
+Chrome applies CORS to the extension's requests, so Tether answers preflights and sends
+`Access-Control-Allow-Origin` for `chrome-extension://` origins only (never for websites).

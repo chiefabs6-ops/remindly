@@ -11,7 +11,7 @@ import { TetherError, TetherOffline, call, dedupeKey, suggest, type SuggestResul
 const INSTRUCTIONS = `Tether is the user's personal task manager on this PC. Use it to hand off unfinished work.
 - When the user stops for now ("that's enough for today", "we'll finish this tomorrow", "park this"), or work is left unfinished at the end of a task, call get_project_context first, then suggest_task (or suggest_task_update if a matching open task exists).
 - Write tasks so the user can resume cold: what was done, what remains (concrete steps), why it matters, and where to continue (files, branch, commands). Never a generic reminder.
-- Suggestions wait in Tether's Inbox for approval. Tell the user it was sent for approval, not that a task was created.
+- Suggestions wait for approval on Tether's Today screen. Tell the user it was sent for approval, not that a task was created.
 - Do not suggest tasks for work you just finished, or for trivial follow-ups.`;
 
 const STATUS = z.enum(["inbox", "not_started", "in_progress", "waiting", "completed", "archived"]);
@@ -211,13 +211,13 @@ export function createServer() {
 
   /** Words the reply from what Tether actually did with the suggestion. */
   function outcome(r: SuggestResult, what: string): string {
-    if (r.state === "spooled") return `Tether is closed, so ${what} was saved and will appear in its Inbox the next time Tether runs.`;
+    if (r.state === "spooled") return `Tether is closed, so ${what} was saved and will appear in Tether the next time Tether runs.`;
     if (r.status && r.status !== "pending")
       return `Tether already had this exact suggestion (it was ${r.status} earlier), so nothing new was sent.`;
     const dup = r.possibleDuplicateOf
       ? ` Tether flagged it as similar to existing task [${r.possibleDuplicateOf}]; if that is the same work, use suggest_task_update on it instead.`
       : "";
-    return `Sent ${what} to Tether's Inbox. It takes effect only when the user approves it.${dup}`;
+    return `Sent ${what} to Tether for approval. It takes effect only when the user approves it.${dup}`;
   }
 
   server.registerTool(
@@ -225,7 +225,7 @@ export function createServer() {
     {
       title: "Tether: suggest a task",
       description:
-        "Send a task to the user's Tether Inbox for approval (it does not become active until approved). Use for unfinished work. Must say what remains and where to resume.",
+        "Send a task to Tether for the user's approval (it does not become active until approved). Use for unfinished work. Must say what remains and where to resume.",
       inputSchema: z.object({
         title: z.string().min(3).max(200).describe("Specific action, e.g. 'Finish educator profile: validation + Irish translations'"),
         description: z.string().max(4000).optional().describe("What the work is and why it matters"),
@@ -321,7 +321,7 @@ export function createServer() {
     "suggest_note",
     {
       title: "Tether: suggest a note",
-      description: "Save research, a decision or meeting notes to Tether (waits in the Inbox for approval).",
+      description: "Save research, a decision or meeting notes to Tether (waits for the user's approval).",
       inputSchema: z.object({
         title: z.string().min(1).max(200),
         body: z.string().min(1).max(20000).describe("Markdown"),

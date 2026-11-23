@@ -1,7 +1,7 @@
-import { useParams, useSearchParams } from "react-router";
+import { toneDot } from "../lib/colors";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 import type { TaskFilter, TaskStatus } from "@tether/core";
 import { QuickAdd } from "../components/QuickAdd";
-import { TaskPanel } from "../components/TaskPanel";
 import { TaskList } from "../components/TaskRow";
 import { errorMessage } from "../lib/api";
 import { useNotes, useProjects, useTasks } from "../lib/queries";
@@ -9,6 +9,7 @@ import { Link } from "react-router";
 
 const VIEWS: Record<string, { label: string; statuses: TaskStatus[] }> = {
   all: { label: "All", statuses: [] },
+  unsorted: { label: "Unsorted", statuses: ["inbox"] },
   open: { label: "Open", statuses: ["inbox", "not_started", "in_progress", "waiting"] },
   waiting: { label: "Waiting", statuses: ["waiting"] },
   done: { label: "Completed", statuses: ["completed"] },
@@ -44,13 +45,15 @@ export function TasksScreen() {
   };
 
   const count = tasks.data?.length ?? 0;
+  const navigate = useNavigate();
+  if (open) return <Navigate to={`/task/${open}`} replace />;
 
   return (
     <div className="flex h-full">
       <div className="min-w-0 flex-1 overflow-y-auto px-6 py-6 lg:px-8">
         <header className="mb-4">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.01em]">
-            {project && <span className="size-2.5 rounded-full" style={{ background: project.color ?? "var(--faint)" }} />}
+            {project && <span className="size-2.5 rounded-full" style={{ background: toneDot(project.color) }} />}
             {project ? project.name : q ? `Search: ${q}` : "All tasks"}
           </h1>
           <p className="mt-1 text-muted">
@@ -60,14 +63,18 @@ export function TasksScreen() {
         </header>
 
         <div className="mb-4">
-          <QuickAdd projects={ps} projectId={projectId ?? null} />
+          {view === "unsorted" ? (
+            <QuickAdd projects={ps} status="inbox" placeholder="Jot something down — sort it later" />
+          ) : (
+            <QuickAdd projects={ps} projectId={projectId ?? null} />
+          )}
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Filters">
-          <div className="flex rounded-[6px] bg-active p-0.5" role="group" aria-label="Status">
+          <div className="flex max-w-full overflow-x-auto rounded-[6px] bg-active p-0.5" role="group" aria-label="Status">
             {Object.entries(VIEWS).map(([k, v]) => (
               <button key={k} onClick={() => update({ view: k })}
-                className={`h-7 rounded-[5px] px-3 text-[13px] ${view === k ? "bg-surface font-medium" : "text-muted hover:text-ink"}`}
+                className={`h-7 flex-none rounded-[5px] px-3 text-[13px] ${view === k ? "bg-surface font-medium" : "text-muted hover:text-ink"}`}
                 aria-pressed={view === k}>
                 {v.label}
               </button>
@@ -91,7 +98,7 @@ export function TasksScreen() {
           {tasks.isError ? (
             <p className="text-negative">Couldn’t load tasks: {errorMessage(tasks.error)} <button className="underline" onClick={() => tasks.refetch()}>Retry</button></p>
           ) : (
-            <TaskList tasks={tasks.data ?? []} projects={ps} selectedId={open} onOpen={(id) => update({ task: id })}
+            <TaskList tasks={tasks.data ?? []} projects={ps} selectedId={open} onOpen={(id) => navigate(`/task/${id}`)}
               hideProject={!!projectId}
               empty={q ? `No ${VIEWS[view].label.toLowerCase()} tasks match “${q}”.` : `No ${VIEWS[view].label.toLowerCase()} tasks here.`} />
           )}
@@ -111,11 +118,6 @@ export function TasksScreen() {
           </section>
         )}
       </div>
-      {open && (
-        <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-          <TaskPanel key={open} id={open} projects={ps} onClose={() => update({ task: null })} onOpen={(id) => update({ task: id })} />
-        </div>
-      )}
     </div>
   );
 }

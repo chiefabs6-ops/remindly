@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { CalendarCheck, ClipboardCheck, FolderKanban, Inbox, ListTodo, Moon, NotebookPen, Search, Settings, Sun } from "lucide-react";
+import { CalendarCheck, ClipboardCheck, FolderKanban, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
 import { api, onNavigate } from "../lib/api";
+import { toneDot } from "../lib/colors";
 import { useAction, useBackendSync, useDashboard, useProjects, useSettings } from "../lib/queries";
 
 function NavItem({ to, icon, label, count }: { to: string; icon: ReactNode; label: string; count?: number }) {
@@ -10,12 +11,12 @@ function NavItem({ to, icon, label, count }: { to: string; icon: ReactNode; labe
       to={to}
       end={to === "/"}
       className={({ isActive }) =>
-        `flex h-8 items-center gap-2.5 rounded-[6px] px-2.5 ${isActive ? "bg-active text-ink" : "text-muted hover:bg-active/60 hover:text-ink"}`
+        `flex h-8 items-center gap-2.5 rounded-[6px] px-2.5 ${isActive ? "bg-active font-medium text-ink" : "text-[color:var(--muted)] hover:bg-active/60 hover:text-ink"}`
       }
     >
       {icon}
       <span className="flex-1 truncate">{label}</span>
-      {!!count && <span className="num text-xs text-ink" aria-label={`${count} waiting`}>{count}</span>}
+      {!!count && <span className="num rounded-full bg-[var(--pill-today-bg)] px-1.5 text-xs text-[var(--pill-today-ink)]" aria-label={`${count} waiting for approval`}>{count}</span>}
     </NavLink>
   );
 }
@@ -54,7 +55,6 @@ export function Layout() {
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const pending = dash.data?.pending.reduce((n, p) => n + p.count, 0) ?? 0;
-  const inboxTotal = pending + (dash.data?.inboxCount ?? 0);
 
   // Notification buttons ask the app to open a screen.
   useEffect(() => {
@@ -87,39 +87,29 @@ export function Layout() {
   const dark = document.documentElement.getAttribute("data-theme") === "dark";
 
   return (
-    <div className="flex h-full">
-      <nav aria-label="Main" className="flex w-[232px] flex-none flex-col gap-1 border-r border-line bg-ground px-3 py-4 max-lg:hidden">
-        <div className="mb-4 flex items-center gap-2 px-2.5 font-semibold">
+    <div className="grid h-full grid-cols-[228px_minmax(0,1fr)] grid-rows-[48px_minmax(0,1fr)] bg-ground max-lg:grid-cols-1 max-lg:grid-rows-[48px_minmax(0,1fr)_56px]">
+      <nav aria-label="Main" className="row-span-2 flex min-h-0 flex-col gap-px px-2.5 py-3.5 max-lg:hidden">
+        <div className="mb-3 flex h-[34px] items-center gap-2 px-2.5 font-semibold">
           <Mark /> Tether
         </div>
-        <form
-          role="search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            navigate(`/tasks?q=${encodeURIComponent(search)}`);
-          }}
-          className="relative mb-3"
-        >
-          <Search size={14} className="pointer-events-none absolute top-[9px] left-2.5 text-faint" />
-          <label htmlFor="search" className="sr-only">Search tasks and notes</label>
-          <input id="search" ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search  Ctrl K" className="field h-8 pl-8 text-[13px]" />
-        </form>
-        <NavItem to="/" icon={<CalendarCheck {...icon} />} label="Today" />
-        <NavItem to="/inbox" icon={<Inbox {...icon} />} label="Inbox" count={inboxTotal} />
+        <NavItem to="/" icon={<CalendarCheck {...icon} />} label="Today" count={pending} />
         <NavItem to="/tasks" icon={<ListTodo {...icon} />} label="All tasks" />
         <NavItem to="/notes" icon={<NotebookPen {...icon} />} label="Notes" />
-        <NavItem to="/projects" icon={<FolderKanban {...icon} />} label="Projects" />
         <NavItem to="/review" icon={<ClipboardCheck {...icon} />} label="Review" />
 
-        <p className="mt-6 mb-1 px-2.5 text-xs text-muted">Projects</p>
-        <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
+        <div className="mt-6 mb-1 flex items-center px-2.5">
+          <p className="text-xs text-muted">Projects</p>
+          <NavLink to="/projects" className="ml-auto text-xs text-muted hover:text-ink" aria-label="Manage projects">
+            <FolderKanban size={14} />
+          </NavLink>
+        </div>
+        <div className="flex min-h-0 flex-col gap-px overflow-y-auto">
           {projects.data?.map((p) => (
             <NavLink key={p.id} to={`/projects/${p.id}`}
-              className={({ isActive }) => `flex h-8 items-center gap-2.5 rounded-[6px] px-2.5 ${isActive ? "bg-active" : "text-muted hover:text-ink"}`}>
-              <span className="size-2 flex-none rounded-full" style={{ background: p.color ?? "var(--faint)" }} />
+              className={({ isActive }) => `flex h-8 items-center gap-2.5 rounded-[6px] px-2.5 ${isActive ? "bg-active text-ink" : "text-[color:var(--muted)] hover:bg-active/60 hover:text-ink"}`}>
+              <span className="size-2 flex-none rounded-[2px]" style={{ background: toneDot(p.color) }} />
               <span className="flex-1 truncate">{p.name}</span>
-              <span className="num text-xs text-faint">{p.openTasks || ""}</span>
+              <span className="num text-xs">{p.openTasks || ""}</span>
             </NavLink>
           ))}
           {projects.data?.length === 0 && <p className="px-2.5 text-xs text-muted">None yet</p>}
@@ -134,11 +124,37 @@ export function Layout() {
         </div>
       </nav>
 
+      {/* Top bar, on the same tinted frame as the sidebar (no rule between them). */}
+      <div className="flex min-w-0 items-center gap-3 px-2 max-lg:px-4">
+        <span className="flex items-center gap-2 font-semibold lg:hidden"><Mark /> Tether</span>
+        <form
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            navigate(`/tasks?q=${encodeURIComponent(search)}`);
+          }}
+          className="relative w-full max-w-[420px] max-lg:hidden"
+        >
+          <Search size={14} className="pointer-events-none absolute top-[9px] left-2.5 text-faint" />
+          <label htmlFor="search" className="sr-only">Search tasks and notes</label>
+          <input id="search" ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tasks and notes" className="field h-8 border-line pl-8 text-[13px]" />
+          <kbd className="pointer-events-none absolute top-[7px] right-2.5 text-xs text-faint">Ctrl K</kbd>
+        </form>
+        <button className="btn btn-primary ml-auto h-8" onClick={() => { navigate("/"); setTimeout(() => document.getElementById("quick-add")?.focus(), 50); }}>
+          <Plus size={14} /> New task
+        </button>
+      </div>
+
+      {/* The sheet: where the work sits. */}
+      <main className="mr-2 mb-2 min-w-0 overflow-y-auto rounded-[16px] border border-line bg-surface max-lg:m-0 max-lg:rounded-none max-lg:border-x-0">
+        <Outlet />
+      </main>
+
       {/* Phone/tablet: the sidebar folds into a bottom bar. */}
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 flex h-14 border-t border-line bg-surface lg:hidden">
+      <nav aria-label="Main" className="flex h-14 border-t border-line bg-surface lg:hidden">
         {[
           ["/", "Today", <CalendarCheck {...icon} />],
-          ["/inbox", "Inbox", <Inbox {...icon} />],
           ["/tasks", "Tasks", <ListTodo {...icon} />],
           ["/notes", "Notes", <NotebookPen {...icon} />],
           ["/settings", "Settings", <Settings {...icon} />],
@@ -150,13 +166,6 @@ export function Layout() {
           </NavLink>
         ))}
       </nav>
-
-      <main className="min-w-0 flex-1 overflow-y-auto pb-16 lg:pb-0">
-        <div className="flex h-12 items-center gap-2 border-b border-line px-4 font-semibold lg:hidden">
-          <Mark /> Tether
-        </div>
-        <Outlet />
-      </main>
     </div>
   );
 }
