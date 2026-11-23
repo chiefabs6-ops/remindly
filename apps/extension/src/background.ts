@@ -25,7 +25,8 @@ async function updateBadge() {
 async function flash(text: string, color: string) {
   await chrome.action.setBadgeText({ text });
   await chrome.action.setBadgeBackgroundColor({ color });
-  setTimeout(updateBadge, 2500);
+  // An alarm survives the worker being stopped; a setTimeout would not.
+  chrome.alarms.create("badge", { when: Date.now() + 3000 });
 }
 
 function setup() {
@@ -46,6 +47,7 @@ chrome.runtime.onStartup.addListener(async () => {
   updateBadge();
 });
 chrome.alarms.onAlarm.addListener(async (a) => {
+  if (a.name === "badge") return updateBadge();
   if (a.name !== "flush") return;
   await client.flush();
   updateBadge();
@@ -79,6 +81,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     payload: { ...s.payload },
     confidence: s.confidence,
     dedupeKey: await captureKey(url, text),
+    capturedAt: new Date().toISOString(),
   };
   const r = await client.capture(body);
   if (r === "sent") await flash("✓", "#2e7d32");
@@ -106,17 +109,29 @@ async function quick(kind: "task" | "note", text: string) {
     payload = { title: title || clean, dueDate: found?.date ?? null, dueTime: found?.time ?? null };
   } else {
     const [first, ...rest] = clean.split("\n");
-    payload = { title: first.slice(0, 120), bodyMd: rest.length ? rest.join("\n").trim() : clean, kind: "general" };
+    payload = { title: first.slice(0, 120), bodyMd: rest.join("\n").trim(), kind: "general" };
   }
-  return client.capture({ kind, origin: "chrome", payload, dedupeKey: await captureKey(`popup:${kind}`, `${Date.now()} ${clean}`) });
+  return client.capture({
+    kind,
+    origin: "chrome",
+    payload,
+    dedupeKey: await captureKey(`popup:${kind}`, `${Date.now()} ${clean}`),
+    capturedAt: new Date().toISOString(),
+  });
 }
 
 async function handle(msg: Msg) {
   switch (msg.type) {
     case "status": {
-      const [online, token, queue, recent] = await Promise.all([client.health(), client.token(), client.queue(), client.recent()]);
+      const [online, token, queue, recent, repair] = await Promise.all([
+        client.health(),
+        client.token(),
+        client.queue(),
+        client.recent(),
+        client.needsRepair(),
+      ]);
       const pending = online && token ? await client.pendingCount() : null;
-      return { online, paired: !!token, queued: queue.length, recent, pending };
+      return { online, paired: !!token, repair, queued: queue.length, recent, pending };
     }
     case "pair":
       return client.pair(msg.code);
@@ -144,6 +159,11 @@ chrome.runtime.onMessage.addListener((msg: Msg, sender, reply) => {
   return true; // async reply
 });
 
-// Harden the token: content scripts (none today) must never read it.
-chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" });
+// There are no content scripts, so nothing untrusted can read chrome.storage.local today.
+// Where Chrome supports it, restrict the area to trusted contexts anyway.
+try {
+  chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" })?.catch(() => {});
+} catch {
+  /* not supported for this area */
+}
 updateBadge();

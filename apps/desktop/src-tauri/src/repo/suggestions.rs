@@ -123,6 +123,22 @@ pub fn find_similar_task(conn: &Connection, title: &str) -> AppResult<Option<Str
         .map(|(_, id)| id))
 }
 
+/// A client's capture time, normalised to UTC; must be within the last 60 days and not in the
+/// future (5 minutes of clock skew allowed). Absent means "now".
+fn captured_time(v: &Option<String>) -> AppResult<String> {
+    let Some(raw) = v.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(now_utc());
+    };
+    let t = chrono::DateTime::parse_from_rfc3339(raw)
+        .map_err(|_| AppError::invalid("capturedAt must be an RFC 3339 time"))?
+        .with_timezone(&chrono::Utc);
+    let now = chrono::Utc::now();
+    if t > now + chrono::Duration::minutes(5) || t < now - chrono::Duration::days(60) {
+        return Err(AppError::invalid("capturedAt is out of range"));
+    }
+    Ok(t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+}
+
 /// Only web links may come from outside clients (no `javascript:`, `file:` ...).
 fn check_url(url: &Option<String>) -> AppResult<()> {
     match url.as_deref().map(str::trim) {
@@ -202,6 +218,7 @@ pub fn create(conn: &Connection, s: &NewSuggestion) -> AppResult<Suggestion> {
         None => None,
     };
     let id = new_id();
+    let created_at = captured_time(&s.captured_at)?;
     conn.execute(
         "INSERT INTO suggestions(id, kind, origin, target_task_id, payload_json, context_json,
             confidence_json, dedupe_key, possible_duplicate_of, status, created_at)
@@ -216,7 +233,7 @@ pub fn create(conn: &Connection, s: &NewSuggestion) -> AppResult<Suggestion> {
             to_json("confidence", &s.confidence)?,
             dedupe_key,
             possible_dup,
-            now_utc()
+            created_at
         ],
     )?;
     get(conn, &id)
@@ -400,6 +417,7 @@ mod tests {
             context: None,
             confidence: Some(json!({"dueDate": 0.6})),
             dedupe_key: key.map(str::to_string),
+            captured_at: None,
         }
     }
 
@@ -483,6 +501,23 @@ mod tests {
                 .is_empty()
         );
         assert!(db.write(|c| dismiss(c, &s.id)).is_err());
+    }
+
+    #[test]
+    fn keeps_the_capture_time() {
+        let db = db();
+        let when = (chrono::Utc::now() - chrono::Duration::days(3))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let s = NewSuggestion {
+            captured_at: Some(when.clone()),
+            ..chrome_task("Queued on Friday", None)
+        };
+        assert_eq!(db.write(|c| create(c, &s)).unwrap().created_at, when);
+        let future = NewSuggestion {
+            captured_at: Some("2999-01-01T00:00:00Z".into()),
+            ..chrome_task("x y", None)
+        };
+        assert!(db.write(|c| create(c, &future)).is_err());
     }
 
     #[test]

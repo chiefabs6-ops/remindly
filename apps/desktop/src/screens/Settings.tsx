@@ -29,18 +29,17 @@ function ChromePairing() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [code]);
-  // A new browser appearing means the code was used.
-  const [seen, setSeen] = useState(count);
+  // Paired while a code is showing: the code was used (re-pairing keeps the count at 1, so
+  // compare against the moment the code was issued).
+  const [pairedAtStart, setPairedAtStart] = useState(false);
   useEffect(() => {
-    if (count > seen) setCode(null);
-    setSeen(count);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [count]);
+    if (code && count > 0 && !pairedAtStart) setCode(null);
+  }, [count, code, pairedAtStart]);
 
   return (
     <div className="space-y-3">
       <p>
-        {count === 0 ? "No browser paired yet." : `${count} Chrome ${count === 1 ? "profile" : "profiles"} paired.`}
+        {count === 0 ? "Chrome is not paired yet." : "Chrome is paired."}
       </p>
       {code && left > 0 ? (
         <div className="rounded-[8px] bg-raised p-3">
@@ -51,12 +50,12 @@ function ChromePairing() {
       ) : null}
       <div className="flex flex-wrap gap-2">
         <button className="btn btn-primary" disabled={start.isPending}
-          onClick={() => start.mutate(undefined, { onSuccess: (r) => { setNow(Date.now()); setCode({ code: r.code, until: Date.now() + r.expiresInSecs * 1000 }); } })}>
+          onClick={() => start.mutate(undefined, { onSuccess: (r) => { setPairedAtStart(count > 0); setNow(Date.now()); setCode({ code: r.code, until: Date.now() + r.expiresInSecs * 1000 }); } })}>
           {code && left > 0 ? "New code" : "Pair Chrome"}
         </button>
         {count > 0 && (
           <button className="btn btn-ghost btn-danger"
-            onClick={() => confirm("Unpair every browser? Tether issues a new token; Claude Code picks it up automatically.") && unpair.mutate(undefined)}>
+            onClick={() => confirm("Unpair Chrome? Tether issues a new token, so the extension must be paired again.") && unpair.mutate(undefined)}>
             Unpair all
           </button>
         )}

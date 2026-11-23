@@ -31,7 +31,8 @@ use crate::{
 /// Settings key holding extra allowed `Origin` values (e.g. `chrome-extension://<id>`).
 pub const ALLOWED_ORIGINS_KEY: &str = "api.allowedOrigins";
 const MAX_BODY: usize = 256 * 1024;
-/// The one route an unlisted extension origin may call: it proves itself with the pairing code.
+/// Routes an unlisted extension origin may call: health (so an unpaired extension can tell that
+/// Tether is running) and pairing (it proves itself with the code).
 const PAIR_PATH: &str = "/v1/pair";
 
 #[derive(Clone)]
@@ -131,6 +132,7 @@ async fn check_host_and_origin(State(s): State<ApiState>, req: Request, next: Ne
     }
     if let Some(origin) = req.headers().get(header::ORIGIN)
         && req.uri().path() != PAIR_PATH
+        && req.uri().path() != "/v1/health"
     {
         let origin = origin.to_str().unwrap_or("").to_string();
         let db = s.app.db.clone();

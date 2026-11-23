@@ -35,6 +35,7 @@ const body = (key: string, title = "Follow up with Niamh"): SuggestionBody => ({
   origin: "chrome",
   payload: { title },
   dedupeKey: key,
+  capturedAt: "2026-11-20T09:00:00.000Z",
 });
 
 describe("TetherClient", () => {
@@ -112,12 +113,57 @@ describe("TetherClient", () => {
     expect((await c.queue())[0]).toMatchObject({ attempts: 2, lastError: "server" });
   });
 
-  it("an unauthorised reply keeps the item and asks to pair again", async () => {
+  it("an unauthorised reply keeps the item, forgets the token and asks to pair again", async () => {
     await store.set("token", "old");
-    const f = fakeFetch(() => json(401, {}));
+    const f = fakeFetch((url) => (url.endsWith("/v1/pair") ? json(200, { token: "new" }) : url.includes("suggestions") && f.calls.length < 2 ? json(403, {}) : json(201, {})));
     const c = new TetherClient(store, f.fn);
     expect(await c.capture(body("k1"))).toBe("queued");
-    expect(await c.send(body("k1"))).toMatchObject({ ok: false, reason: "unpaired" });
+    expect(await c.token()).toBeUndefined();
+    expect(await c.needsRepair()).toBe(true);
+    await c.pair("123456");
+    expect(await c.needsRepair()).toBe(false);
+    expect(await c.queue()).toEqual([]);
+  });
+
+  it("keeps the capture time in queued items", async () => {
+    await store.set("token", "abc");
+    let sentBody: { capturedAt?: string } = {};
+    let up = false;
+    const c = new TetherClient(
+      store,
+      fakeFetch((_u, init) => {
+        if (!up) return offline("", init);
+        sentBody = JSON.parse(String(init?.body));
+        return json(201, {});
+      }).fn,
+    );
+    await c.capture(body("k1"));
+    up = true;
+    await c.flush();
+    expect(sentBody.capturedAt).toBe("2026-11-20T09:00:00.000Z");
+  });
+
+  it("a capture during a flush is not lost", async () => {
+    await store.set("token", "abc");
+    await store.set("queue", [{ body: body("old"), addedAt: "", attempts: 1 }]);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let first = true;
+    const c = new TetherClient(
+      store,
+      fakeFetch(async () => {
+        if (first) {
+          first = false;
+          await gate; // flush is mid-send
+        }
+        return json(503, {});
+      }).fn,
+    );
+    const flushing = c.flush();
+    const capturing = c.capture(body("new"));
+    release();
+    await Promise.all([flushing, capturing]);
+    expect((await c.queue()).map((q) => q.body.dedupeKey).sort()).toEqual(["new", "old"]);
   });
 
   it("caps recent captures at 10", async () => {

@@ -1,6 +1,6 @@
 import type { Recent } from "./client";
 
-type Status = { online: boolean; paired: boolean; queued: number; recent: Recent[]; pending: number | null };
+type Status = { online: boolean; paired: boolean; repair: boolean; queued: number; recent: Recent[]; pending: number | null };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const send = <T>(msg: unknown) => chrome.runtime.sendMessage(msg) as Promise<T>;
@@ -28,7 +28,8 @@ async function render() {
   $("main").hidden = !s.paired;
   $("retry").hidden = !(s.queued && s.online);
   $("pending").textContent = s.pending === null ? "" : `${s.pending} waiting for approval`;
-  if (!s.online && s.queued) say(`${s.queued} saved here — they send when Tether is open.`);
+  if (s.repair && !s.paired) say("Tether stopped accepting this browser (it was unpaired). Pair again to send waiting captures.", "err");
+  else if (!s.online && s.queued) say(`${s.queued} saved here — they send when Tether is open.`);
 
   const ul = $("recent");
   ul.replaceChildren();
@@ -45,7 +46,7 @@ async function render() {
     t.textContent = r.title; // textContent: page text is never parsed as HTML
     const st = document.createElement("span");
     st.className = `s ${r.state}`;
-    st.textContent = r.state === "queued" ? "waiting" : ago(r.at);
+    st.textContent = r.state === "queued" ? "waiting" : r.state === "rejected" ? "not accepted" : ago(r.at);
     li.append(t, st);
     ul.append(li);
   }

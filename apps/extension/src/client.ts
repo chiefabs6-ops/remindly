@@ -16,6 +16,8 @@ export interface SuggestionBody {
   payload: Record<string, unknown>;
   confidence?: Record<string, number> | null;
   dedupeKey: string;
+  /** When the user captured it; kept while queued so Tether shows the real time. */
+  capturedAt: string;
 }
 
 export interface Queued {
@@ -28,7 +30,7 @@ export interface Queued {
 export interface Recent {
   title: string;
   at: string;
-  state: "sent" | "queued";
+  state: "sent" | "queued" | "rejected";
   key: string;
 }
 
@@ -38,10 +40,29 @@ export type SendResult =
   | { ok: false; retry: false; reason: "unpaired" | "rejected"; message: string };
 
 export class TetherClient {
+  /** Serialises queue/recent read-modify-write cycles (capture vs flush vs alarm). */
+  private lock: Promise<unknown> = Promise.resolve();
+
   constructor(
     private storage: Storage,
     private fetchFn: typeof fetch = fetch,
   ) {}
+
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.lock.then(fn, fn);
+    this.lock = run.catch(() => undefined);
+    return run;
+  }
+
+  /** True after Tether refused our token (unpaired from the app): the popup asks to pair again. */
+  async needsRepair(): Promise<boolean> {
+    return (await this.storage.get<boolean>("needsRepair")) === true;
+  }
+
+  private async lostPairing() {
+    await this.storage.set("token", undefined);
+    await this.storage.set("needsRepair", true);
+  }
 
   async token(): Promise<string | undefined> {
     return this.storage.get<string>("token");
@@ -60,6 +81,7 @@ export class TetherClient {
         return { ok: false, message: data.message ?? `Pairing failed (${res.status})` };
       }
       await this.storage.set("token", data.token);
+      await this.storage.set("needsRepair", undefined);
       await this.flush();
       return { ok: true };
     } catch {
@@ -98,6 +120,7 @@ export class TetherClient {
     }
     if (res.ok) return { ok: true };
     if (res.status === 401 || res.status === 403) {
+      await this.lostPairing();
       return { ok: false, retry: false, reason: "unpaired", message: "Tether no longer accepts this browser. Pair again." };
     }
     if (res.status >= 500) return { ok: false, retry: true, reason: "server" };
@@ -123,7 +146,11 @@ export class TetherClient {
    * Send now, or queue for later if Tether is closed / not paired yet.
    * Returns what happened so the UI can say "Sent" or "Saved — will send when Tether is open".
    */
-  async capture(body: SuggestionBody): Promise<"sent" | "queued" | { error: string }> {
+  capture(body: SuggestionBody): Promise<"sent" | "queued" | { error: string }> {
+    return this.exclusive(() => this.captureNow(body));
+  }
+
+  private async captureNow(body: SuggestionBody): Promise<"sent" | "queued" | { error: string }> {
     const title = String(body.payload.title ?? "Note");
     const r = await this.send(body);
     if (r.ok) {
@@ -141,7 +168,11 @@ export class TetherClient {
   }
 
   /** Retry everything queued. Items the server rejects as invalid are dropped (they would never succeed). */
-  async flush(): Promise<{ sent: number; left: number; dropped: number }> {
+  flush(): Promise<{ sent: number; left: number; dropped: number }> {
+    return this.exclusive(() => this.flushNow());
+  }
+
+  private async flushNow(): Promise<{ sent: number; left: number; dropped: number }> {
     const q = await this.queue();
     if (!q.length || !(await this.token())) return { sent: 0, left: q.length, dropped: 0 };
     const left: Queued[] = [];
@@ -161,6 +192,7 @@ export class TetherClient {
         }
       } else {
         dropped++;
+        await this.remember(String(item.body.payload.title ?? "Note"), item.body.dedupeKey, "rejected");
       }
     }
     await this.storage.set("queue", left);

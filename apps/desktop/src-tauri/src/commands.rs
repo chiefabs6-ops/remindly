@@ -248,7 +248,7 @@ pub fn pairing_start(s: Db) -> PairingCode {
     }
 }
 
-/// Extension origins allowed to call the API (one per paired Chrome profile).
+/// Extension origins allowed to call the API (the Tether extension has one fixed ID).
 #[tauri::command(async)]
 pub fn paired_browsers(s: Db) -> AppResult<Vec<String>> {
     let v = s.db.read(|c| settings::get(c, ALLOWED_ORIGINS_KEY))?;
@@ -259,7 +259,7 @@ pub fn paired_browsers(s: Db) -> AppResult<Vec<String>> {
         .collect())
 }
 
-/// Forget every paired browser and issue a new token (Claude Code's MCP server re-reads it).
+/// Forget every paired browser and issue a new token.
 #[tauri::command(async)]
 pub fn unpair_all(s: Db) -> AppResult<()> {
     s.db.write(|c| settings::set(c, ALLOWED_ORIGINS_KEY, &Value::Array(vec![])))?;
