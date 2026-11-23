@@ -1,0 +1,192 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+
+/*
+  Tether — "achromatic ledger" app style (.taste-skill/direction.json, seed 425170490).
+  The chrome carries no colour. One data hue (--today) marks today's work; --negative marks overdue.
+  Face: a blue-grey ledger ground (#f2f4f7) instead of the kit's #f8f8f8.
+  Grid: 232px sidebar + fluid canvas, 24px gutters, one 12px gap everywhere.
+*/
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --ground: #f2f4f7;
+  --surface: #ffffff;
+  --raised: #f7f8fa;
+  --active: #e4e7ec;
+  --border: #e3e6ea;
+  --rule: #eef0f3;
+  --control: #d0d4da;
+  --text: #0a0a0a;
+  --muted: #5f6368;
+  --faint: #6b6b6b;
+  --primary: #141414;
+  --primary-ink: #ffffff;
+  --today: #1d5fbf;
+  --positive: #2e7d32;
+  --negative: #c4242a;
+  --pill-neutral-bg: #eceef1;
+  --pill-neutral-ink: #3d3d3d;
+  --pill-negative-bg: #ffedea;
+  --pill-negative-ink: #831c1e;
+  --pill-today-bg: #e6eefa;
+  --pill-today-ink: #123c7a;
+  --pill-warning-bg: #fffbeb;
+  --pill-warning-ink: #92400e;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --ground: #000000;
+  --surface: #111111;
+  --raised: #171717;
+  --active: #242424;
+  --border: #222222;
+  --rule: #1a1a1a;
+  --control: #444444;
+  --text: #ffffff;
+  --muted: #b4b4b4;
+  --faint: #949494;
+  --primary: #ffffff;
+  --primary-ink: #000000;
+  --today: #6aa1f0;
+  --positive: #3fc07a;
+  --negative: #e5566f;
+  --pill-neutral-bg: #222222;
+  --pill-neutral-ink: #d4d4d4;
+  --pill-negative-bg: #2c1a20;
+  --pill-negative-ink: #f08a9b;
+  --pill-today-bg: #14243a;
+  --pill-today-ink: #a8c8f5;
+  --pill-warning-bg: #2a2110;
+  --pill-warning-ink: #f0c36d;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", "Segoe UI", system-ui, sans-serif;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-active: var(--active);
+  --color-line: var(--border);
+  --color-rule: var(--rule);
+  --color-control: var(--control);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-today: var(--today);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --radius-card: 8px;
+  --radius-control: 6px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--today);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--pill-today-bg);
+}
+
+/* Component classes live in the components layer so Tailwind utilities can override them. */
+@layer components {
+/* Pills: pale tint, dark ink of the same hue. Never squeezed. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--pill-neutral-bg);
+  color: var(--pill-neutral-ink);
+}
+.pill-negative { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.pill-today { background: var(--pill-today-bg); color: var(--pill-today-ink); }
+.pill-warning { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+
+/* Controls: one height per context. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms, transform 80ms;
+}
+.btn:hover { background: var(--raised); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { color: var(--faint); cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+.btn-primary:hover { background: var(--primary); opacity: 0.88; }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { background: var(--active); }
+.btn-danger { color: var(--negative); }
+
+.field {
+  height: 36px;
+  width: 100%;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+textarea.field {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 20px;
+}
+.field::placeholder { color: var(--faint); }
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
