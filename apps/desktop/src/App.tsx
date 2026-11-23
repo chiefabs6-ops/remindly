@@ -5,6 +5,7 @@ import { queryClient, useSettings } from "./lib/queries";
 import { InboxScreen } from "./screens/Inbox";
 import { NotesScreen } from "./screens/Notes";
 import { ProjectsScreen } from "./screens/Projects";
+import { ReviewScreen } from "./screens/Review";
 import { SettingsScreen } from "./screens/Settings";
 import { TasksScreen } from "./screens/Tasks";
 import { TodayScreen } from "./screens/Today";
@@ -24,6 +25,7 @@ function Shell() {
         <Route path="projects" element={<ProjectsScreen />} />
         <Route path="projects/:projectId" element={<TasksScreen />} />
         <Route path="notes" element={<NotesScreen />} />
+        <Route path="review" element={<ReviewScreen />} />
         <Route path="settings" element={<SettingsScreen />} />
         <Route path="*" element={<TodayScreen />} />
       </Route>

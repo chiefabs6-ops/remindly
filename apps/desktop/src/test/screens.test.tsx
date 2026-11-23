@@ -5,6 +5,7 @@ import App from "../App";
 import { mockInvoke, resetMock } from "../lib/mock";
 import { setBackend } from "../lib/api";
 import { queryClient } from "../lib/queries";
+import { todayIso } from "../lib/format";
 
 beforeEach(() => {
   resetMock();
@@ -93,5 +94,26 @@ describe("First run", () => {
     await user.click(screen.getByRole("button", { name: "Add project" }));
     await user.click(await screen.findByRole("button", { name: "Start with 1 project" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeInTheDocument();
+  });
+});
+
+describe("Review", () => {
+  it("moves an open task to tomorrow and marks one done", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/review";
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "End of day review" })).toBeInTheDocument();
+    const row = await screen.findByRole("group", { name: "What to do with Book car service" });
+    await user.click(within(row).getByRole("button", { name: "Tomorrow" }));
+    await waitFor(async () => {
+      const [t] = await mockInvoke<{ scheduledDate: string | null }[]>("tasks_list", { filter: { query: "Book car service" } });
+      expect(t.scheduledDate).not.toBe(todayIso());
+    });
+    const draft = await screen.findByRole("group", { name: "What to do with Draft newsletter intro" });
+    await user.click(within(draft).getByRole("button", { name: "Done" }));
+    await waitFor(async () => {
+      const [t] = await mockInvoke<{ status: string }[]>("tasks_list", { filter: { query: "Draft newsletter" } });
+      expect(t.status).toBe("completed");
+    });
   });
 });
