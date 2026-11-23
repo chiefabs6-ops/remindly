@@ -155,6 +155,7 @@ body {
 .btn:disabled { color: var(--faint); cursor: not-allowed; }
 .btn-primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
 .btn-primary:hover { background: var(--primary); opacity: 0.88; }
+.btn-primary:disabled { background: var(--active); border-color: var(--active); color: var(--muted); opacity: 1; }
 .btn-ghost { border-color: transparent; background: transparent; }
 .btn-ghost:hover { background: var(--active); }
 .btn-danger { color: var(--negative); }

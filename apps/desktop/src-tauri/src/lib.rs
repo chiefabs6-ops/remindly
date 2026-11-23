@@ -5,7 +5,9 @@ pub mod commands;
 pub mod db;
 pub mod error;
 pub mod model;
+pub mod reminders;
 pub mod repo;
+pub mod scheduler;
 pub mod spool;
 pub mod state;
 
@@ -22,7 +24,7 @@ use crate::{api::ApiState, state::AppState};
 /// Event the UI listens to; emitted when data changes outside the UI (API writes).
 pub const DATA_CHANGED: &str = "data-changed";
 
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -140,6 +142,11 @@ pub fn run() {
                 }),
             }));
 
+            scheduler::start(
+                app.handle().clone(),
+                app.state::<AppState>().inner().clone(),
+            );
+
             build_tray(app)?;
 
             // The config window starts hidden (`visible: false`) so nothing flashes at login.
@@ -191,6 +198,11 @@ pub fn run() {
             commands::unpair_all,
             commands::code_projects_list,
             commands::code_project_set_project,
+            commands::reminders_get,
+            commands::reminders_set,
+            commands::reminder_test,
+            commands::autostart_get,
+            commands::autostart_set,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

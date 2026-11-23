@@ -281,3 +281,49 @@ pub fn code_project_set_project(
 ) -> AppResult<crate::repo::code_projects::CodeProject> {
     s.db.write(|c| crate::repo::code_projects::set_project(c, &id, project_id.as_deref()))
 }
+
+// ---------- reminders & startup ----------
+
+#[tauri::command(async)]
+pub fn reminders_get(s: Db) -> AppResult<crate::reminders::ReminderSettings> {
+    s.db.read(crate::reminders::ReminderSettings::load)
+}
+
+#[tauri::command(async)]
+pub fn reminders_set(
+    s: Db,
+    value: crate::reminders::ReminderSettings,
+) -> AppResult<crate::reminders::ReminderSettings> {
+    value.validate()?;
+    s.db.write(|c| {
+        settings::set(
+            c,
+            crate::reminders::SETTINGS_KEY,
+            &serde_json::to_value(&value)?,
+        )
+    })?;
+    Ok(value)
+}
+
+#[tauri::command(async)]
+pub fn reminder_test(app: tauri::AppHandle) {
+    crate::scheduler::test_toast(&app);
+}
+
+#[tauri::command(async)]
+pub fn autostart_get(app: tauri::AppHandle) -> AppResult<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| AppError::Io(std::io::Error::other(e.to_string())))
+}
+
+/// Start Tether (hidden, in the tray) when you sign in to Windows. Per-user, no admin.
+#[tauri::command(async)]
+pub fn autostart_set(app: tauri::AppHandle, enabled: bool) -> AppResult<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    let m = app.autolaunch();
+    let r = if enabled { m.enable() } else { m.disable() };
+    r.map_err(|e| AppError::Io(std::io::Error::other(e.to_string())))?;
+    Ok(enabled)
+}

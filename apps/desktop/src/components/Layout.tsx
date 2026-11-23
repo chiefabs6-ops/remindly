@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { CalendarCheck, FolderKanban, Inbox, ListTodo, Moon, NotebookPen, Search, Settings, Sun } from "lucide-react";
-import { api } from "../lib/api";
+import { CalendarCheck, ClipboardCheck, FolderKanban, Inbox, ListTodo, Moon, NotebookPen, Search, Settings, Sun } from "lucide-react";
+import { api, onNavigate } from "../lib/api";
 import { useAction, useBackendSync, useDashboard, useProjects, useSettings } from "../lib/queries";
 
 function NavItem({ to, icon, label, count }: { to: string; icon: ReactNode; label: string; count?: number }) {
@@ -56,6 +56,17 @@ export function Layout() {
   const pending = dash.data?.pending.reduce((n, p) => n + p.count, 0) ?? 0;
   const inboxTotal = pending + (dash.data?.inboxCount ?? 0);
 
+  // Notification buttons ask the app to open a screen.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    onNavigate((path) => navigate(path)).then((u) => (cancelled ? u() : (stop = u)));
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [navigate]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -98,6 +109,7 @@ export function Layout() {
         <NavItem to="/tasks" icon={<ListTodo {...icon} />} label="All tasks" />
         <NavItem to="/notes" icon={<NotebookPen {...icon} />} label="Notes" />
         <NavItem to="/projects" icon={<FolderKanban {...icon} />} label="Projects" />
+        <NavItem to="/review" icon={<ClipboardCheck {...icon} />} label="Review" />
 
         <p className="mt-6 mb-1 px-2.5 text-xs text-muted">Projects</p>
         <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">

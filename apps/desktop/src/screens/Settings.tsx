@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api } from "../lib/api";
+import { api, errorMessage, type ReminderSettings } from "../lib/api";
 import { useAction, useSettings } from "../lib/queries";
 import { useQuery } from "@tanstack/react-query";
 
@@ -68,6 +68,109 @@ function ChromePairing() {
   );
 }
 
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function Toggle({ id, label, checked, onChange, hint }: { id: string; label: string; checked: boolean; onChange: (v: boolean) => void; hint?: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2">
+      <div>
+        <label htmlFor={id} className="font-medium">{label}</label>
+        {hint && <p className="text-[13px] text-muted">{hint}</p>}
+      </div>
+      <input id={id} type="checkbox" role="switch" className="mt-1 size-4 accent-[var(--primary)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    </div>
+  );
+}
+
+function Reminders() {
+  const q = useQuery({ queryKey: ["tether", "reminders"], queryFn: api.reminders });
+  const [r, setR] = useState<ReminderSettings | null>(null);
+  useEffect(() => {
+    if (q.data) setR(q.data);
+  }, [q.data]);
+  const save = useAction((v: ReminderSettings) => api.setReminders(v));
+  const test = useAction(() => api.testReminder());
+  if (!r) return <div className="h-40 rounded-[8px] bg-active" aria-busy="true" />;
+  const dirty = JSON.stringify(r) !== JSON.stringify(q.data);
+  const set = <K extends keyof ReminderSettings>(k: K, v: ReminderSettings[K]) => setR({ ...r, [k]: v });
+  const num = (k: "dueSoonMinutes" | "overdueAfterMinutes" | "nudgeMinutes") => (e: { target: { value: string } }) => set(k, Math.max(0, Number(e.target.value) || 0));
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); save.mutate(r); }} className="space-y-1">
+      <Toggle id="r-on" label="Reminders on" checked={r.enabled} onChange={(v) => set("enabled", v)} hint="Windows notifications with Snooze, Tomorrow and Done buttons." />
+      <fieldset disabled={!r.enabled} className="space-y-1 disabled:opacity-60">
+        <div className="grid grid-cols-2 gap-3 py-2">
+          <div>
+            <label className="label" htmlFor="r-soon">Warn before a timed task (minutes)</label>
+            <input id="r-soon" type="number" min={0} className="field" value={r.dueSoonMinutes} onChange={num("dueSoonMinutes")} />
+          </div>
+          <div>
+            <label className="label" htmlFor="r-over">Remind again when overdue after (minutes)</label>
+            <input id="r-over" type="number" min={0} className="field" value={r.overdueAfterMinutes} onChange={num("overdueAfterMinutes")} />
+          </div>
+        </div>
+        <Toggle id="r-brief" label="Morning briefing" checked={r.briefingEnabled} onChange={(v) => set("briefingEnabled", v)} hint="Today's tasks, overdue work and suggestions waiting." />
+        <div className="w-40 pb-2">
+          <label className="label" htmlFor="r-brief-t">Briefing time</label>
+          <input id="r-brief-t" type="time" className="field" value={r.briefingTime} onChange={(e) => set("briefingTime", e.target.value)} disabled={!r.briefingEnabled} />
+        </div>
+        <Toggle id="r-rev" label="End-of-day review" checked={r.reviewEnabled} onChange={(v) => set("reviewEnabled", v)} hint="Only when something is still open for today." />
+        <div className="w-40 pb-2">
+          <label className="label" htmlFor="r-rev-t">Review time</label>
+          <input id="r-rev-t" type="time" className="field" value={r.reviewTime} onChange={(e) => set("reviewTime", e.target.value)} disabled={!r.reviewEnabled} />
+        </div>
+        <div className="grid grid-cols-3 gap-3 py-2">
+          <div>
+            <label className="label" htmlFor="r-nudge">Nudge every (minutes, 0 = off)</label>
+            <input id="r-nudge" type="number" min={0} className="field" value={r.nudgeMinutes} onChange={num("nudgeMinutes")} />
+          </div>
+          <div>
+            <label className="label" htmlFor="r-ws">Work starts</label>
+            <input id="r-ws" type="time" className="field" value={r.workStart} onChange={(e) => set("workStart", e.target.value)} />
+          </div>
+          <div>
+            <label className="label" htmlFor="r-we">Work ends</label>
+            <input id="r-we" type="time" className="field" value={r.workEnd} onChange={(e) => set("workEnd", e.target.value)} />
+          </div>
+        </div>
+        <fieldset className="py-2">
+          <legend className="label">Work days (briefing, review and nudges)</legend>
+          <div className="flex flex-wrap gap-1">
+            {DAYS.map((d, i) => {
+              const n = i + 1;
+              const on = r.workDays.includes(n);
+              return (
+                <button key={d} type="button" aria-pressed={on} onClick={() => set("workDays", on ? r.workDays.filter((x) => x !== n) : [...r.workDays, n].sort())}
+                  className={`h-8 w-12 rounded-[6px] text-[13px] ${on ? "bg-primary text-primary-ink" : "bg-active text-muted"}`}>
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+      </fieldset>
+      <div className="flex flex-wrap items-center gap-2 pt-3">
+        <button type="submit" className="btn btn-primary" disabled={!dirty || save.isPending}>Save reminders</button>
+        <button type="button" className="btn" onClick={() => test.mutate(undefined)}>Send a test notification</button>
+        {!dirty && save.isSuccess && <span className="text-xs text-muted">Saved</span>}
+        {save.isError && <span className="text-negative">{errorMessage(save.error)}</span>}
+      </div>
+    </form>
+  );
+}
+
+function Startup() {
+  const q = useQuery({ queryKey: ["tether", "autostart"], queryFn: api.autostart });
+  const set = useAction((v: boolean) => api.setAutostart(v));
+  return (
+    <div>
+      <Toggle id="autostart" label="Start Tether when I sign in" checked={!!q.data} onChange={(v) => set.mutate(v)}
+        hint="Tether starts hidden in the tray so reminders work all day. Closing the window keeps it running; Quit is in the tray menu." />
+      {(q.isError || set.isError) && <p className="text-negative">{errorMessage(q.error ?? set.error)}</p>}
+    </div>
+  );
+}
+
 export function SettingsScreen() {
   const settings = useSettings();
   const info = useQuery({ queryKey: ["tether", "api-info"], queryFn: api.apiInfo });
@@ -77,20 +180,28 @@ export function SettingsScreen() {
   return (
     <div className="mx-auto max-w-[1100px] px-6 py-6 lg:px-8">
       <h1 className="text-2xl font-semibold tracking-[-0.01em]">Settings</h1>
-      <p className="mt-1 mb-4 text-muted">Everything is stored on this PC. Reminders and backups arrive in later phases.</p>
+      <p className="mt-1 mb-4 text-muted">Everything is stored on this PC.</p>
 
       <Row title="Appearance" help="Follow Windows, or pick light or dark.">
         <fieldset>
           <legend className="label">Theme</legend>
           <div className="flex gap-1 rounded-[6px] bg-active p-0.5 sm:w-fit">
             {(["system", "light", "dark"] as const).map((t) => (
-              <label key={t} className={`flex h-8 flex-1 cursor-pointer items-center justify-center rounded-[5px] px-4 text-[13px] ${theme === t ? "bg-surface font-medium" : "text-muted"}`}>
+              <label key={t} className={`flex h-8 flex-1 cursor-pointer items-center justify-center whitespace-nowrap rounded-[5px] px-4 text-[13px] ${theme === t ? "bg-surface font-medium" : "text-muted"}`}>
                 <input type="radio" name="theme" value={t} checked={theme === t} onChange={() => setTheme.mutate(t)} className="sr-only" />
                 {t === "system" ? "Match Windows" : t[0].toUpperCase() + t.slice(1)}
               </label>
             ))}
           </div>
         </fieldset>
+      </Row>
+
+      <Row title="Reminders" help="When and how Tether reminds you. Notifications come from the tray, even with the window closed.">
+        <Reminders />
+      </Row>
+
+      <Row title="Startup" help="Off by default.">
+        <Startup />
       </Row>
 
       <Row title="Local connection" help="The Chrome extension and Claude Code reach Tether here. It only accepts requests from this PC that carry the secret token.">

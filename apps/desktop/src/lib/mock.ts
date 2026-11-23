@@ -495,6 +495,21 @@ const handlers: Record<string, (a: Args) => unknown> = {
     { id: "cp1", rootDir: "C:\\Code\\educator-platform", name: "educator-platform", gitRemote: null, projectId: store.projects[0]?.id ?? null, lastSeenAt: now() },
   ],
   code_project_set_project: ({ id: cid, projectId }) => ({ id: cid, rootDir: "", name: "", gitRemote: null, projectId, lastSeenAt: now() }),
+  reminders_get: () =>
+    (store.settings.reminders as object | undefined) ?? {
+      enabled: true, dueSoonMinutes: 15, overdueAfterMinutes: 60, briefingEnabled: true, briefingTime: "09:00",
+      reviewEnabled: true, reviewTime: "17:30", nudgeMinutes: 0, workStart: "09:00", workEnd: "18:00", workDays: [1, 2, 3, 4, 5],
+    },
+  reminders_set: ({ value }) => {
+    store.settings.reminders = value;
+    return value;
+  },
+  reminder_test: () => undefined,
+  autostart_get: () => !!store.settings.autostart,
+  autostart_set: ({ enabled }) => {
+    store.settings.autostart = enabled;
+    return enabled;
+  },
   api_info: () => ({ url: "http://127.0.0.1:47821", tokenHint: "3f9a", dataDir: "%APPDATA%\\ie.tether.app" }),
 };
 

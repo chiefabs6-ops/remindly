@@ -30,6 +30,20 @@ export interface CodeProject {
   lastSeenAt: string;
 }
 
+export interface ReminderSettings {
+  enabled: boolean;
+  dueSoonMinutes: number;
+  overdueAfterMinutes: number;
+  briefingEnabled: boolean;
+  briefingTime: string;
+  reviewEnabled: boolean;
+  reviewTime: string;
+  nudgeMinutes: number;
+  workStart: string;
+  workEnd: string;
+  workDays: number[];
+}
+
 type Args = Record<string, unknown>;
 type Invoke = <T>(cmd: string, args?: Args) => Promise<T>;
 
@@ -106,12 +120,24 @@ export const api = {
   startPairing: () => call<{ code: string; expiresInSecs: number }>("pairing_start"),
   pairedBrowsers: () => call<string[]>("paired_browsers"),
   unpairAll: () => call<void>("unpair_all"),
+  reminders: () => call<ReminderSettings>("reminders_get"),
+  setReminders: (value: ReminderSettings) => call<ReminderSettings>("reminders_set", { value }),
+  testReminder: () => call<void>("reminder_test"),
+  autostart: () => call<boolean>("autostart_get"),
+  setAutostart: (enabled: boolean) => call<boolean>("autostart_set", { enabled }),
   codeProjects: () => call<CodeProject[]>("code_projects_list"),
   linkCodeProject: (id: string, projectId: string | null) =>
     call<CodeProject>("code_project_set_project", { id, projectId }),
 };
 
 /** Subscribe to backend data changes (API writes). Returns an unsubscribe function. */
+/** Follow navigation requests from notification buttons ("Review now", "Open"). */
+export async function onNavigate(cb: (path: string) => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string>("navigate", (e) => cb(e.payload));
+}
+
 export async function onDataChanged(cb: () => void): Promise<() => void> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
