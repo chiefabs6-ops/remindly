@@ -1,4 +1,18 @@
-import type { Recent } from "./client";
+import { API, TetherClient, chromeStorage, type Recent } from "./client";
+
+// Chrome's Local Network Access rules: a background service worker cannot show the "allow local
+// network access" prompt, so its first calls to 127.0.0.1 can fail. The popup is a page, so it
+// makes the first contact (and pairing) itself; once allowed, the worker can connect too.
+const popupClient = new TetherClient(chromeStorage());
+
+async function reachFromPage(): Promise<"ok" | "blocked"> {
+  try {
+    const r = await fetch(`${API}/v1/health`, { cache: "no-store" });
+    return r.ok ? "ok" : "blocked";
+  } catch {
+    return "blocked";
+  }
+}
 
 type Status = { online: boolean; paired: boolean; repair: boolean; queued: number; recent: Recent[]; pending: number | null };
 
@@ -20,16 +34,23 @@ function ago(iso: string) {
 }
 
 async function render() {
+  const page = await reachFromPage();
   const s = await send<Status>({ type: "status" });
+  const online = s.online || page === "ok";
   const state = $("state");
-  state.textContent = s.online ? "Tether is running" : "Tether is closed";
-  state.className = `state ${s.online ? "" : "off"}`;
+  state.textContent = online ? "Tether is running" : "Can't reach Tether";
+  state.className = `state ${online ? "" : "off"}`;
+  if (!online) {
+    say("Start Tether on this PC. If Chrome asks to allow access to devices on your local network, choose Allow, then reopen this popup.", "err");
+  } else if (page === "ok" && !s.online) {
+    say("Chrome is blocking the background part of the extension. Allow local network access for Tether (site settings), then reload the extension.", "err");
+  }
   $("pair").hidden = s.paired;
   $("main").hidden = !s.paired;
-  $("retry").hidden = !(s.queued && s.online);
+  $("retry").hidden = !(s.queued && online);
   $("pending").textContent = s.pending === null ? "" : `${s.pending} waiting for approval`;
   if (s.repair && !s.paired) say("Tether stopped accepting this browser (it was unpaired). Pair again to send waiting captures.", "err");
-  else if (!s.online && s.queued) say(`${s.queued} saved here — they send when Tether is open.`);
+  else if (!online && s.queued) say(`${s.queued} saved here — they send when Tether is open.`);
 
   const ul = $("recent");
   ul.replaceChildren();
@@ -56,9 +77,11 @@ $("pair-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const code = $<HTMLInputElement>("code").value.trim();
   if (!/^\d{6}$/.test(code)) return say("Enter the 6 digits shown in Tether.", "err");
-  const r = await send<{ ok: boolean; message?: string }>({ type: "pair", code });
+  // Pair from the page (see reachFromPage), then let the worker send anything waiting.
+  const r = await popupClient.pair(code);
+  if (r.ok) await send({ type: "flush" }).catch(() => undefined);
   if (r.ok) say("Paired. Right-click any selected text to create a task.", "ok");
-  else say(r.message ?? "Pairing failed.", "err");
+  else say(("message" in r && r.message) || "Pairing failed.", "err");
   render();
 });
 
