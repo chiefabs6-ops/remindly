@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import type { Task } from "@tether/core";
 import { DayStrip } from "../components/DayStrip";
 import { QuickAdd } from "../components/QuickAdd";
-import { TaskPanel } from "../components/TaskPanel";
 import { TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
 import { ago, dueLabel, longDate } from "../lib/format";
@@ -151,8 +150,11 @@ export function TodayScreen() {
     if (v) next.set(k, v);
     setParams(next, { replace: true });
   };
-  const openTask = (id: string | null) => setParam("task", id);
+  const navigate = useNavigate();
+  const openTask = (id: string | null) => (id ? navigate(`/task/${id}`) : setParam("task", null));
   const ps = projects.data ?? [];
+
+  if (open) return <Navigate to={`/task/${open}`} replace />;
 
   if (dash.isError) {
     return (
@@ -235,16 +237,10 @@ export function TodayScreen() {
       <div
         ref={railRef}
         className={`w-[340px] flex-none border-l border-line xl:w-[380px] max-lg:w-full max-lg:border-t max-lg:border-l-0 ${
-          open || suggestion ? "max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:overflow-y-auto max-lg:border-0 max-lg:bg-surface" : ""
+          suggestion ? "max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:overflow-y-auto max-lg:border-0 max-lg:bg-surface" : ""
         }`}
       >
-        {open ? (
-          <div className="lg:sticky lg:top-0 lg:h-[calc(100vh-60px)]">
-            <TaskPanel key={open} id={open} projects={ps} onClose={() => openTask(null)} onOpen={openTask} />
-          </div>
-        ) : (
-          <Rail onOpenTask={(id) => openTask(id)} selectedSuggestion={suggestion} onSelectSuggestion={(id) => setParam("s", id)} />
-        )}
+        <Rail onOpenTask={(id) => openTask(id)} selectedSuggestion={suggestion} onSelectSuggestion={(id) => setParam("s", id)} />
       </div>
     </div>
   );

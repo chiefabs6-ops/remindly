@@ -42,7 +42,7 @@ function Editor({ note, projects, onDeleted }: { note: Note; projects: Project[]
         <button type="submit" className="btn btn-primary" disabled={!dirty || save.isPending}>Save note</button>
         <button type="button" className="btn" disabled={dirty || convert.isPending}
           title={dirty ? "Save first" : "One task per “- ” line, or one task from the title"}
-          onClick={() => convert.mutate(undefined, { onSuccess: (ts) => navigate(`/tasks?task=${ts[0]?.id ?? ""}`) })}>
+          onClick={() => convert.mutate(undefined, { onSuccess: (ts) => navigate(ts[0] ? `/task/${ts[0].id}` : "/tasks") })}>
           Turn into tasks
         </button>
         <button type="button" className="btn btn-ghost btn-danger ml-auto"

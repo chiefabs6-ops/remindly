@@ -7,6 +7,7 @@ import { ProjectsScreen } from "./screens/Projects";
 import { ReviewScreen } from "./screens/Review";
 import { SettingsScreen } from "./screens/Settings";
 import { TasksScreen } from "./screens/Tasks";
+import { TaskPage } from "./screens/TaskPage";
 import { TodayScreen } from "./screens/Today";
 import { WelcomeScreen } from "./screens/Welcome";
 
@@ -28,6 +29,7 @@ function Shell() {
         <Route index element={<TodayScreen />} />
         <Route path="inbox" element={<InboxRedirect />} />
         <Route path="tasks" element={<TasksScreen />} />
+        <Route path="task/:id" element={<TaskPage />} />
         <Route path="projects" element={<ProjectsScreen />} />
         <Route path="projects/:projectId" element={<TasksScreen />} />
         <Route path="notes" element={<NotesScreen />} />

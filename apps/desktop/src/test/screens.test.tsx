@@ -139,14 +139,12 @@ describe("Settings backups", () => {
 
 describe("Local AI", () => {
   it("AI buttons are hidden while off; Plan my day works without AI", async () => {
-    const user = userEvent.setup();
     const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
     window.location.hash = `#/?task=${t.id}`;
     render(<App />);
-    await screen.findByRole("heading", { level: 1, name: "Today" });
-    expect(await screen.findByLabelText("Title")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Book car service" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /with AI/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Close details" }));
+    window.location.hash = "#/";
     expect(await screen.findByText(/Start with/)).toBeInTheDocument();
   });
 
@@ -163,5 +161,29 @@ describe("Local AI", () => {
       const subs = await mockInvoke<unknown[]>("tasks_list", { filter: { parentId: t.id } });
       expect(subs).toHaveLength(2);
     });
+  });
+});
+
+
+describe("Task page", () => {
+  it("opens a task as a readable page with where it came from, and Edit shows the form", async () => {
+    const user = userEvent.setup();
+    const [s0] = await mockInvoke<{ id: string }[]>("suggestions_list", { status: "pending" });
+    const r = await mockInvoke<{ id: string }>("suggestion_approve", { id: s0.id });
+    window.location.hash = `#/task/${r.id}`;
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Follow up about the updated teacher list" })).toBeInTheDocument();
+    expect(screen.getByText(/Captured in Chrome/)).toBeInTheDocument();
+    expect(screen.getByText(/“Follow up about the updated teacher list before Friday\.”/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Re: Teacher list/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(await screen.findByLabelText("Title")).toHaveValue("Follow up about the updated teacher list");
+  });
+
+  it("old ?task= links land on the task page", async () => {
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
+    window.location.hash = `#/tasks?task=${t.id}`;
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Book car service" })).toBeInTheDocument();
   });
 });

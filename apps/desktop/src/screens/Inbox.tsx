@@ -53,7 +53,7 @@ export function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void 
         <>
           <p className="label">Task</p>
           <p className="mb-4 font-medium">
-            <Link className="underline" to={`/tasks?task=${t.id}`}>{t.title}</Link>
+            <Link className="underline" to={`/task/${t.id}`}>{t.title}</Link>
           </p>
           {rows.length > 0 && (
             <table className="mb-4 w-full text-left">
@@ -164,7 +164,7 @@ export function Review({ s, projects, onDone }: { s: Suggestion; projects: Proje
       {s.possibleDuplicateOf && (
         <p className="mb-4 flex items-start gap-2 rounded-[8px] bg-[var(--pill-warning-bg)] px-3 py-2 text-[var(--pill-warning-ink)]">
           <AlertTriangle size={15} className="mt-0.5 flex-none" />
-          <span>Looks like a task you already have. <Link className="underline" to={`/tasks?task=${s.possibleDuplicateOf}`}>Open it</Link> before approving.</span>
+          <span>Looks like a task you already have. <Link className="underline" to={`/task/${s.possibleDuplicateOf}`}>Open it</Link> before approving.</span>
         </p>
       )}
 

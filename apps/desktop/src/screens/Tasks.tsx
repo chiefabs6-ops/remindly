@@ -1,8 +1,7 @@
 import { toneDot } from "../lib/colors";
-import { useParams, useSearchParams } from "react-router";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 import type { TaskFilter, TaskStatus } from "@tether/core";
 import { QuickAdd } from "../components/QuickAdd";
-import { TaskPanel } from "../components/TaskPanel";
 import { TaskList } from "../components/TaskRow";
 import { errorMessage } from "../lib/api";
 import { useNotes, useProjects, useTasks } from "../lib/queries";
@@ -46,6 +45,8 @@ export function TasksScreen() {
   };
 
   const count = tasks.data?.length ?? 0;
+  const navigate = useNavigate();
+  if (open) return <Navigate to={`/task/${open}`} replace />;
 
   return (
     <div className="flex h-full">
@@ -97,7 +98,7 @@ export function TasksScreen() {
           {tasks.isError ? (
             <p className="text-negative">Couldn’t load tasks: {errorMessage(tasks.error)} <button className="underline" onClick={() => tasks.refetch()}>Retry</button></p>
           ) : (
-            <TaskList tasks={tasks.data ?? []} projects={ps} selectedId={open} onOpen={(id) => update({ task: id })}
+            <TaskList tasks={tasks.data ?? []} projects={ps} selectedId={open} onOpen={(id) => navigate(`/task/${id}`)}
               hideProject={!!projectId}
               empty={q ? `No ${VIEWS[view].label.toLowerCase()} tasks match “${q}”.` : `No ${VIEWS[view].label.toLowerCase()} tasks here.`} />
           )}
@@ -117,11 +118,6 @@ export function TasksScreen() {
           </section>
         )}
       </div>
-      {open && (
-        <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-          <TaskPanel key={open} id={open} projects={ps} onClose={() => update({ task: null })} onOpen={(id) => update({ task: id })} />
-        </div>
-      )}
     </div>
   );
 }
