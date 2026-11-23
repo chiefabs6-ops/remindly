@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ArrowLeft, Bot, Check, Copy, ExternalLink, Globe, Pencil, RotateCcw, StickyNote, Trash2 } from "lucide-react";
 import { PRIORITY_LABEL, STATUS_LABEL, addDays, type HistoryEntry, type Priority, type TaskDetail } from "@tether/core";
 import { TaskPanel } from "../components/TaskPanel";
@@ -81,7 +81,11 @@ function Body({ t }: { t: TaskDetail }) {
   const toggle = useAction(() => api.setStatus(t.id, done ? "not_started" : "completed", !done));
   const tomorrow = useAction(() => api.reschedule(t.id, addDays(today, 1), t.dueTime));
   const duplicate = useAction(() => api.duplicate(t.id));
-  const remove = useAction(() => api.deleteTask(t.id));
+  // Leave the page before the data refresh, so the deleted task is never shown as "not found".
+  const remove = useAction(async () => {
+    await api.deleteTask(t.id);
+    back();
+  });
   const addSub = useAction((title: string) => api.createTask({ title }, t.id));
   const aiOn = useAiEnabled();
   const [steps, setSteps] = useState<{ text: string; on: boolean }[] | null>(null);
@@ -94,12 +98,14 @@ function Body({ t }: { t: TaskDetail }) {
   });
   const tone = dueTone(t);
   const err = toggle.error ?? tomorrow.error ?? duplicate.error ?? remove.error ?? addSub.error;
-  const back = () => (window.history.length > 1 ? navigate(-1) : navigate("/"));
+  const location = useLocation();
+  // Opened directly (e.g. from a notification): no in-app history to go back to.
+  const back = () => (location.key !== "default" ? navigate(-1) : navigate("/", { replace: true }));
 
   if (editing) {
     return (
       <div className="mx-auto max-w-[760px] py-4">
-        <TaskPanel id={t.id} projects={ps} onClose={() => setEditing(false)} onOpen={(id) => navigate(`/task/${id}`)} />
+        <TaskPanel id={t.id} projects={ps} onClose={() => setEditing(false)} onDeleted={back} onOpen={(id) => navigate(`/task/${id}`)} />
       </div>
     );
   }
@@ -117,7 +123,7 @@ function Body({ t }: { t: TaskDetail }) {
           <button className="btn btn-ghost h-8 px-2" aria-label="Duplicate task" title="Duplicate"
             onClick={() => duplicate.mutate(undefined, { onSuccess: (c) => navigate(`/task/${c.id}`) })}><Copy size={15} /></button>
           <button className="btn btn-ghost btn-danger h-8 px-2" aria-label="Delete task" title="Delete"
-            onClick={() => confirm(`Delete "${t.title}"${t.subtaskCount ? ` and its ${t.subtaskCount} subtasks` : ""}?`) && remove.mutate(undefined, { onSuccess: back })}>
+            onClick={() => confirm(`Delete "${t.title}"${t.subtaskCount ? ` and its ${t.subtaskCount} subtasks` : ""}?`) && remove.mutate(undefined)}>
             <Trash2 size={15} />
           </button>
         </div>
@@ -141,7 +147,7 @@ function Body({ t }: { t: TaskDetail }) {
         {t.tags.map((g) => <span key={g} className="text-muted">#{g}</span>)}
       </div>
 
-      {t.description && <p className="mt-5 text-[15px] leading-6">{t.description}</p>}
+      {t.description && <p className="mt-5 text-[15px] leading-6 whitespace-pre-wrap">{t.description}</p>}
 
       {(t.source !== "manual" || t.sourceSelection || t.sourceUrl) && (
         <section className="mt-6 rounded-[8px] bg-raised p-4" aria-label="Where it came from">

@@ -34,11 +34,13 @@ function toForm(t: TaskDetail): Required<TaskInput> & { tagText: string } {
 
 const SOURCE_LABEL = { manual: "Added by you", chrome: "Captured in Chrome", claude: "Suggested by Claude Code", note: "Made from a note", ai: "Suggested by local AI" };
 
-/** Right-hand detail pane for one task: edit, subtasks, reschedule, duplicate, delete. */
-export function TaskPanel({ id, projects, onClose, onOpen }: {
+/** Edit form for one task (shown by the task page's Edit button). Saving returns to the page. */
+export function TaskPanel({ id, projects, onClose, onOpen, onDeleted }: {
   id: string;
   projects: Project[];
   onClose: () => void;
+  /** Called after the task is deleted (defaults to onClose). */
+  onDeleted?: () => void;
   onOpen: (id: string) => void;
 }) {
   const q = useTask(id);
@@ -103,7 +105,7 @@ export function TaskPanel({ id, projects, onClose, onOpen }: {
           <button className="btn btn-ghost btn-danger px-2" aria-label="Delete task" title="Delete"
             onClick={() => {
               if (confirm(`Delete "${t.title}"${t.subtaskCount ? ` and its ${t.subtaskCount} subtasks` : ""}?`))
-                remove.mutate(undefined, { onSuccess: onClose });
+                remove.mutate(undefined, { onSuccess: onDeleted ?? onClose });
             }}>
             <Trash2 size={15} />
           </button>
@@ -117,7 +119,7 @@ export function TaskPanel({ id, projects, onClose, onOpen }: {
         className="flex-1 space-y-4 overflow-y-auto px-5 py-4"
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate(form);
+          save.mutate(form, { onSuccess: onClose });
         }}
       >
         <div>

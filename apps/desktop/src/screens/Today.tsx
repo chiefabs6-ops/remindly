@@ -187,7 +187,7 @@ export function TodayScreen() {
           </p>
         </header>
 
-        <div className="mb-4"><QuickAdd projects={ps} onCreated={(id) => openTask(id)} /></div>
+        <div className="mb-4"><QuickAdd projects={ps} /></div>
 
         <div className="flex gap-5 border-b border-line" role="tablist" aria-label="Which tasks to show">
           {([["today", "Today"], ["fortnight", "Next 14 days"]] as const).map(([v, label]) => (
