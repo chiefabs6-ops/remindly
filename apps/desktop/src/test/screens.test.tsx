@@ -263,6 +263,45 @@ describe("Task page", () => {
     });
   });
 
+  it("a cleared due time stays cleared when the date moves", async () => {
+    const user = userEvent.setup();
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Approve October expense claims" } });
+    window.location.hash = `#/task/${t.id}`;
+    render(<App />);
+    const time = await screen.findByLabelText("Due time");
+    await user.clear(time);
+    await user.tab();
+    await waitFor(async () => {
+      const d = await mockInvoke<{ dueTime: string | null }>("task_get", { id: t.id });
+      expect(d.dueTime).toBeNull();
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Tomorrow" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Tomorrow" }));
+    await waitFor(async () => {
+      const d = await mockInvoke<{ dueDate: string; dueTime: string | null }>("task_get", { id: t.id });
+      expect(d.dueDate).not.toBe(todayIso());
+      expect(d.dueTime).toBeNull();
+    });
+  });
+
+  it("tags changed in the Edit form show in the panel and are not saved back", async () => {
+    const user = userEvent.setup();
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Draft newsletter intro" } });
+    window.location.hash = `#/task/${t.id}`;
+    render(<App />);
+    expect(await screen.findByLabelText("Tags")).toHaveValue("writing");
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const field = await screen.findByLabelText(/^Tags/);
+    await user.clear(field);
+    await user.type(field, "newsletter");
+    await user.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(screen.getByLabelText("Tags")).toHaveValue("newsletter"));
+    await user.click(screen.getByLabelText("Tags"));
+    await user.tab();
+    const d = await mockInvoke<{ tags: string[] }>("task_get", { id: t.id });
+    expect(d.tags).toEqual(["newsletter"]);
+  });
+
   it("old ?task= links land on the task page", async () => {
     const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
     window.location.hash = `#/tasks?task=${t.id}`;

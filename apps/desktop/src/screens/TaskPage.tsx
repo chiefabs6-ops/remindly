@@ -142,11 +142,9 @@ function Body({ t }: { t: TaskDetail }) {
   const latest = () => queryClient.getQueryData<TaskDetail>(keys.task(t.id)) ?? t;
   const patch = useAction((p: Partial<TaskInput>) => api.updateTask(t.id, { ...asInput(latest()), ...p }));
   const setStatus = useAction((s: TaskStatus) => api.setStatus(t.id, s, s === "completed"));
-  // Remember the last due time, so clearing the date and setting it again keeps the time.
-  const lastTime = useRef(t.dueTime);
-  if (t.dueTime) lastTime.current = t.dueTime;
-  const reschedule = useAction((d: string | null) => api.reschedule(t.id, d, d ? (latest().dueTime ?? lastTime.current) : null));
-  const busy = patch.isPending || setStatus.isPending || reschedule.isPending;
+  // Moving the date keeps the saved time; a cleared time stays cleared.
+  const reschedule = useAction((d: string | null) => api.reschedule(t.id, d, d ? latest().dueTime : null));
+  const busy = patch.isPending || setStatus.isPending || reschedule.isPending || toggle.isPending;
   const [remindAt, setRemindAt] = useState("");
   const remind = useAction((local: string) => api.remindAt(t.id, new Date(local).toISOString()));
   const saveTags = (text: string) => {
@@ -182,7 +180,7 @@ function Body({ t }: { t: TaskDetail }) {
         )}
         <div className="ml-auto flex flex-wrap gap-2">
           <button className="btn h-8" onClick={() => setEditing(true)}><Pencil size={14} /> Edit</button>
-          <button className="btn btn-primary h-8" disabled={toggle.isPending} onClick={() => toggle.mutate(undefined)}>
+          <button className="btn btn-primary h-8" disabled={busy} onClick={() => toggle.mutate(undefined)}>
             {done ? <><RotateCcw size={14} /> Reopen</> : <><Check size={14} /> Mark done</>}
           </button>
           <button className="btn btn-ghost h-8 px-2" aria-label="Duplicate task" title="Duplicate"
