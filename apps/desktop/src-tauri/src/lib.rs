@@ -1,6 +1,7 @@
 //! Tether desktop core: owns the SQLite database, serves the local API, hosts the tray.
 
 pub mod api;
+pub mod backup;
 pub mod commands;
 pub mod db;
 pub mod error;
@@ -99,6 +100,11 @@ pub fn run() {
             })?;
             app.manage(state.clone());
             app.manage(scheduler::PendingRoute::default());
+            match backup::quick_check(&state.db) {
+                Ok(r) if r == "ok" => {}
+                Ok(r) => log::error!("database health check failed: {r}"),
+                Err(e) => log::error!("database health check could not run: {e}"),
+            }
             if let Ok(n) = state.db.write(|c| reminders::prune(c, 60))
                 && n > 0
             {
@@ -209,6 +215,14 @@ pub fn run() {
             commands::reminder_test,
             commands::reminder_snooze,
             commands::take_pending_route,
+            commands::backup_settings_get,
+            commands::backup_settings_set,
+            commands::backups_list,
+            commands::backup_now,
+            commands::backup_restore,
+            commands::export_json,
+            commands::db_health,
+            commands::reveal_path,
             commands::autostart_get,
             commands::autostart_set,
         ])

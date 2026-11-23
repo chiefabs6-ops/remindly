@@ -140,7 +140,7 @@ You chose **localhost + token**. Notes:
                      │  │ Tray icon · autostart · single instance                 ││
                      │  │ React UI (WebView2) ◄─ Tauri commands + events          ││
                      │  └─────────────────────────────────────────────────────────┘│
-                     │  %APPDATA%\ie.tether.app\  tether.db · token · backups\            │
+                     │  %APPDATA%\ie.tether.app\  tether.db · token · spool\             │
                      └─────────────────────────────────────────────────────────────┘
 ```
 

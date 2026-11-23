@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, errorMessage, type ReminderSettings } from "../lib/api";
+import { api, errorMessage, type BackupSettings, type ReminderSettings } from "../lib/api";
 import { useAction, useSettings } from "../lib/queries";
 import { useQuery } from "@tanstack/react-query";
 
@@ -159,6 +159,87 @@ function Reminders() {
   );
 }
 
+function Backups() {
+  const cfg = useQuery({ queryKey: ["tether", "backup-settings"], queryFn: api.backupSettings });
+  const files = useQuery({ queryKey: ["tether", "backups"], queryFn: api.backups });
+  const health = useQuery({ queryKey: ["tether", "db-health"], queryFn: api.dbHealth });
+  const [b, setB] = useState<BackupSettings | null>(null);
+  useEffect(() => {
+    if (cfg.data) setB(cfg.data);
+  }, [cfg.data]);
+  const save = useAction((v: BackupSettings) => api.setBackupSettings(v));
+  const now = useAction(() => api.backupNow());
+  const restore = useAction((name: string) => api.restoreBackup(name));
+  const exp = useAction(() => api.exportJson());
+  if (!b) return <div className="h-32 rounded-[8px] bg-active" aria-busy="true" />;
+  const dirty = b.autoDaily !== cfg.data?.autoDaily || b.dir !== cfg.data?.dir || b.keepDaily !== cfg.data?.keepDaily || b.keepWeekly !== cfg.data?.keepWeekly;
+  const list = files.data ?? [];
+  const kb = (n: number) => `${Math.max(1, Math.round(n / 1024)).toLocaleString("en-IE")} KB`;
+  const err = save.error ?? now.error ?? restore.error ?? exp.error ?? health.error;
+
+  return (
+    <div className="space-y-3">
+      <p className={health.data && health.data !== "ok" ? "text-negative" : "text-muted"}>
+        Database check: {health.data === "ok" ? "healthy" : health.data ? `problem found (${health.data}) — restore a backup below` : "…"}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primary" disabled={now.isPending} onClick={() => now.mutate(undefined)}>Back up now</button>
+        <button className="btn" disabled={exp.isPending} onClick={() => exp.mutate(undefined)}>Export as JSON</button>
+      </div>
+      {now.data && <p className="text-xs text-muted">Saved {now.data.name}</p>}
+      {exp.data && (
+        <p className="text-xs text-muted break-all">
+          Exported to {exp.data} <button className="underline" onClick={() => api.reveal(exp.data!)}>Show</button>
+        </p>
+      )}
+      <form className="space-y-1 pt-2" onSubmit={(e) => { e.preventDefault(); save.mutate(b); }}>
+        <Toggle id="b-auto" label="Back up automatically every day" checked={b.autoDaily} onChange={(v) => setB({ ...b, autoDaily: v })}
+          hint={`Keeps the last ${b.keepDaily} days and ${b.keepWeekly} weekly copies. Your own backups are never deleted.`} />
+        <div>
+          <label className="label" htmlFor="b-dir">Backup folder</label>
+          <input id="b-dir" className="field" placeholder={cfg.data?.folder} value={b.dir} onChange={(e) => setB({ ...b, dir: e.target.value })} />
+          <p className="mt-1 text-xs text-muted">Leave empty for {cfg.data?.folder}. Copy this folder to move Tether to another PC.</p>
+        </div>
+        <div className="flex gap-3">
+          <div className="w-32">
+            <label className="label" htmlFor="b-days">Daily copies</label>
+            <input id="b-days" type="number" min={1} max={60} className="field" value={b.keepDaily} onChange={(e) => setB({ ...b, keepDaily: Number(e.target.value) || 1 })} />
+          </div>
+          <div className="w-32">
+            <label className="label" htmlFor="b-weeks">Weekly copies</label>
+            <input id="b-weeks" type="number" min={0} max={52} className="field" value={b.keepWeekly} onChange={(e) => setB({ ...b, keepWeekly: Number(e.target.value) || 0 })} />
+          </div>
+        </div>
+        {cfg.data?.lastError && (
+          <p className="text-negative">The last automatic backup failed: {cfg.data.lastError}. It tries again tomorrow; use Back up now to retry.</p>
+        )}
+        <div className="pt-2"><button className="btn" disabled={!dirty || save.isPending}>Save backup settings</button></div>
+      </form>
+      <div className="pt-2">
+        <p className="label">Backups in this folder <span className="num">{list.length}</span></p>
+        {list.length === 0 ? (
+          <p className="rounded-[8px] border border-dashed border-line px-3 py-2.5 text-muted">No backups yet.</p>
+        ) : (
+          <ul className="max-h-[320px] overflow-y-auto rounded-[8px] border border-line">
+            {list.map((f) => (
+              <li key={f.name} className="flex items-center gap-3 border-b border-rule px-3 py-2 last:border-0">
+                <span className="num flex-1">{f.takenAt}{f.name.includes("-auto") ? " · automatic" : f.name.includes("before-restore") ? " · before a restore" : ""}</span>
+                <span className="num w-20 text-right text-xs text-muted">{kb(f.bytes)}</span>
+                <button className="btn btn-ghost h-8" disabled={restore.isPending}
+                  onClick={() => confirm(`Restore the backup from ${f.takenAt}? Your current data is backed up first, then replaced.`) && restore.mutate(f.name)}>
+                  Restore
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {restore.data && <p className="mt-2 text-xs text-muted">Restored. Your previous data is in {restore.data.name}.</p>}
+      </div>
+      {err && <p className="text-negative">{errorMessage(err)}</p>}
+    </div>
+  );
+}
+
 function Startup() {
   const q = useQuery({ queryKey: ["tether", "autostart"], queryFn: api.autostart });
   const set = useAction((v: boolean) => api.setAutostart(v));
@@ -198,6 +279,10 @@ export function SettingsScreen() {
 
       <Row title="Reminders" help="When and how Tether reminds you. Notifications come from the tray, even with the window closed.">
         <Reminders />
+      </Row>
+
+      <Row title="Backups" help="Copies of your database on this PC. Nothing is written until you back up or turn on daily backups.">
+        <Backups />
       </Row>
 
       <Row title="Startup" help="Off by default.">

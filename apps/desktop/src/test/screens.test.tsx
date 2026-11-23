@@ -117,3 +117,18 @@ describe("Review", () => {
     });
   });
 });
+
+describe("Settings backups", () => {
+  it("backs up on request and lists the copy", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/settings";
+    render(<App />);
+    expect(await screen.findByText(/Database check: healthy/)).toBeInTheDocument();
+    expect(screen.getByText("No backups yet.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText(/^Saved tether-/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Restore" })).toBeInTheDocument();
+    // Automatic backups stay off unless switched on.
+    expect(screen.getByRole("switch", { name: "Back up automatically every day" })).not.toBeChecked();
+  });
+});
