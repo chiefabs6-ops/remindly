@@ -471,3 +471,117 @@ pub fn reveal_path(app: tauri::AppHandle, s: Db, path: String) -> AppResult<()> 
         .spawn()?;
     Ok(())
 }
+
+// ---------- local AI (optional) ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiResult<T: Serialize> {
+    pub value: T,
+    /// Generation speed on this PC.
+    pub tokens_per_second: f64,
+}
+
+#[tauri::command(async)]
+pub fn ai_settings_get(s: Db) -> AppResult<crate::ai::AiSettings> {
+    s.db.read(crate::ai::AiSettings::load)
+}
+
+#[tauri::command(async)]
+pub fn ai_settings_set(s: Db, value: crate::ai::AiSettings) -> AppResult<crate::ai::AiSettings> {
+    value.validate()?;
+    s.db.write(|c| settings::set(c, crate::ai::SETTINGS_KEY, &serde_json::to_value(&value)?))?;
+    Ok(value)
+}
+
+#[tauri::command(async)]
+pub fn ai_status(s: Db) -> AppResult<crate::ai::AiStatus> {
+    let cfg = s.db.read(crate::ai::AiSettings::load)?;
+    Ok(crate::ai::status(&cfg))
+}
+
+/// Suggest task fields for captured text (used in the Inbox review form; nothing is saved).
+#[tauri::command(async)]
+pub fn ai_extract(
+    s: Db,
+    text: String,
+    page_title: Option<String>,
+) -> AppResult<AiResult<crate::ai::Extracted>> {
+    let cfg = s.db.read(crate::ai::AiSettings::load)?;
+    let projects: Vec<String> =
+        s.db.read(|c| projects::list(c, false))?
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let (value, tps) =
+        crate::ai::extract_task(&cfg, &text, page_title.as_deref(), &today, &projects)?;
+    Ok(AiResult {
+        value,
+        tokens_per_second: tps,
+    })
+}
+
+/// Suggest subtasks for a task (the user picks which to add).
+#[tauri::command(async)]
+pub fn ai_breakdown(s: Db, id: String) -> AppResult<AiResult<Vec<String>>> {
+    let cfg = s.db.read(crate::ai::AiSettings::load)?;
+    let t = s.db.read(|c| tasks::get(c, &id))?;
+    let details = [
+        t.description.unwrap_or_default(),
+        t.notes.unwrap_or_default(),
+    ]
+    .join("\n");
+    let (value, tps) = crate::ai::break_down(&cfg, &t.title, &details)?;
+    Ok(AiResult {
+        value,
+        tokens_per_second: tps,
+    })
+}
+
+/// A short plan for today from the dashboard's titles and dates.
+#[tauri::command(async)]
+pub fn ai_summary(s: Db) -> AppResult<AiResult<String>> {
+    let cfg = s.db.read(crate::ai::AiSettings::load)?;
+    let d = s.db.read(|c| dashboard::build(c, &Clock::now()))?;
+    let line = |t: &Task| {
+        format!(
+            "- {}{}{}",
+            t.title,
+            t.due_date
+                .as_ref()
+                .map(|d| format!(
+                    " (due {d}{})",
+                    t.due_time
+                        .as_ref()
+                        .map(|x| format!(" {x}"))
+                        .unwrap_or_default()
+                ))
+                .unwrap_or_default(),
+            if t.priority >= 3 {
+                " [high priority]"
+            } else {
+                ""
+            }
+        )
+    };
+    let mut facts = format!("Today is {}.\n", d.today);
+    for (name, list) in [
+        ("Overdue", &d.overdue),
+        ("Due today", &d.due_today),
+        ("Carried over", &d.carried_over),
+        ("Due in the next 3 days", &d.due_soon),
+    ] {
+        facts.push_str(&format!("{name} ({}):\n", list.len()));
+        for t in list.iter().take(12) {
+            facts.push_str(&line(t));
+            facts.push('\n');
+        }
+    }
+    facts.push_str(&format!("Done today: {}\n", d.completed_today.len()));
+    let (value, tps) = crate::ai::summarise(&cfg, &facts)?;
+    Ok(AiResult {
+        value,
+        tokens_per_second: tps,
+    })
+}
