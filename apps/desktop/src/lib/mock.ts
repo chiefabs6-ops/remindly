@@ -85,9 +85,9 @@ function project(name: string, color: string, sortOrder: number): Project {
 export function sampleStore(): Store {
   const today = isoDate(new Date());
   const d = (n: number) => addDays(today, n);
-  const edu = project("Educator platform", "#1d5fbf", 1);
-  const admin = project("Administration", "#2e7d32", 2);
-  const personal = project("Personal", "#8a8a8a", 3);
+  const edu = project("Educator platform", "#0a3a80", 1);
+  const admin = project("Administration", "#7a3d00", 2);
+  const personal = project("Personal", "#1f5a36", 3);
   const profile = task({
     title: "Finish educator profile page",
     projectId: edu.id,

@@ -27,7 +27,7 @@ describe("Today", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeInTheDocument();
     const overdue = await screen.findByRole("region", { name: "Overdue" });
     expect(within(overdue).getByText("Send updated teacher list to programme lead")).toBeInTheDocument();
-    expect(screen.getByText(/overdue — start there/)).toBeInTheDocument();
+    expect(screen.getAllByText(/3 overdue/).length).toBeGreaterThan(0);
     expect(screen.getByRole("list", { name: /next 14 days/ })).toBeInTheDocument();
   });
 
@@ -50,18 +50,21 @@ describe("Today", () => {
     render(<App />);
     const box = await screen.findByRole("checkbox", { name: /Complete "Book car service"/ });
     await user.click(box);
-    const done = await screen.findByRole("region", { name: /Done today/ });
-    await waitFor(() => expect(within(done).getByText("Book car service")).toBeInTheDocument());
+    await waitFor(async () => {
+      const [t] = await mockInvoke<{ status: string }[]>("tasks_list", { filter: { query: "Book car service" } });
+      expect(t.status).toBe("completed");
+    });
   });
 });
 
 describe("Inbox", () => {
   it("approves a Chrome suggestion with edits", async () => {
     const user = userEvent.setup();
-    window.location.hash = "#/inbox";
+    window.location.hash = "#/inbox"; // redirects to Today's approvals panel
     render(<App />);
+    await user.click(await screen.findByRole("button", { name: /Follow up about the updated teacher list/ }));
     const title = await screen.findByLabelText("Title");
-    expect(screen.getByText("Possible duplicate")).toBeInTheDocument();
+    expect(screen.getByText(/Looks like a task you already have/)).toBeInTheDocument();
     await user.clear(title);
     await user.type(title, "Chase the teacher list");
     await user.click(screen.getByRole("button", { name: "Approve task" }));
@@ -74,8 +77,9 @@ describe("Inbox", () => {
 
   it("dismiss removes the suggestion without creating a task", async () => {
     const user = userEvent.setup();
-    window.location.hash = "#/inbox";
+    window.location.hash = "#/inbox"; // redirects to Today's approvals panel
     render(<App />);
+    await user.click(await screen.findByRole("button", { name: /Follow up about the updated teacher list/ }));
     await screen.findByLabelText("Title");
     const before = (await mockInvoke<unknown[]>("tasks_list", { filter: {} })).length;
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
@@ -142,7 +146,7 @@ describe("Local AI", () => {
     await screen.findByRole("heading", { level: 1, name: "Today" });
     expect(await screen.findByLabelText("Title")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /with AI/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Plan my day" }));
+    await user.click(screen.getByRole("button", { name: "Close details" }));
     expect(await screen.findByText(/Start with/)).toBeInTheDocument();
   });
 

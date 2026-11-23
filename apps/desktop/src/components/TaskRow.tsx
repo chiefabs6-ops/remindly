@@ -3,6 +3,7 @@ import type { Project, Task } from "@tether/core";
 import { api } from "../lib/api";
 import { dueLabel, dueTone } from "../lib/format";
 import { useAction } from "../lib/queries";
+import { toneStyle } from "../lib/colors";
 
 const PRIORITY_MARK: Record<number, string> = { 3: "High", 2: "Medium", 1: "Low" };
 
@@ -37,8 +38,8 @@ export function TaskRow({ task, project, selected, onOpen, hideProject, compact 
   return (
     <div
       role="listitem"
-      className={`group flex min-h-11 items-center gap-3 rounded-[6px] px-2 ${
-        selected ? "bg-active" : "hover:bg-raised"
+      className={`group flex min-h-11 items-center gap-3 border-t border-rule px-2 first:border-t-0 ${
+        selected ? "bg-raised" : "hover:bg-raised"
       }`}
     >
       <input
@@ -47,7 +48,7 @@ export function TaskRow({ task, project, selected, onOpen, hideProject, compact 
         checked={done}
         disabled={toggle.isPending}
         onChange={(e) => toggle.mutate(e.target.checked)}
-        className="size-4 flex-none cursor-pointer accent-[var(--primary)]"
+        className="size-4 flex-none cursor-pointer rounded-[4px] accent-[var(--today)]"
       />
       <button
         type="button"
@@ -65,8 +66,8 @@ export function TaskRow({ task, project, selected, onOpen, hideProject, compact 
         {task.status === "in_progress" && <span className="pill">In progress</span>}
       </button>
       {!hideProject && !compact && (
-        <span className="hidden w-40 flex-none truncate text-right text-xs text-muted md:block">
-          {project?.name ?? ""}
+        <span className="hidden w-44 flex-none justify-end md:flex">
+          {project && <span className="chip" style={toneStyle(project.color)} title={project.name}>{project.name}</span>}
         </span>
       )}
       <span className={`w-14 flex-none text-right text-xs text-muted ${compact ? "hidden" : "max-sm:hidden"}`}>

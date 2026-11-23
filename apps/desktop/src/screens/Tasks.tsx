@@ -1,3 +1,4 @@
+import { toneDot } from "../lib/colors";
 import { useParams, useSearchParams } from "react-router";
 import type { TaskFilter, TaskStatus } from "@tether/core";
 import { QuickAdd } from "../components/QuickAdd";
@@ -50,7 +51,7 @@ export function TasksScreen() {
       <div className="min-w-0 flex-1 overflow-y-auto px-6 py-6 lg:px-8">
         <header className="mb-4">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.01em]">
-            {project && <span className="size-2.5 rounded-full" style={{ background: project.color ?? "var(--faint)" }} />}
+            {project && <span className="size-2.5 rounded-full" style={{ background: toneDot(project.color) }} />}
             {project ? project.name : q ? `Search: ${q}` : "All tasks"}
           </h1>
           <p className="mt-1 text-muted">

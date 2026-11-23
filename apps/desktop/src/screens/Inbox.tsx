@@ -9,8 +9,8 @@ import { api, errorMessage } from "../lib/api";
 import { ago, dueLabel, hostOf } from "../lib/format";
 import { useAction, useAiEnabled, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
 
-const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
-const title = (s: Suggestion) =>
+export const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
+export const suggestionTitle = (s: Suggestion) =>
   s.kind === "task_update"
     ? "Change to an existing task"
     : (s.payload as SuggestedTask).title || (s.payload as NoteInput).title || "Untitled note";
@@ -29,7 +29,7 @@ const PRI = ["None", "Low", "Medium", "High"];
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "none" : String(v).replace("_", " "));
 
 /** A proposed change to an existing task: the task, then each field old → new. */
-function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
+export function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
   const target = useTask(s.targetTaskId);
   const p = s.payload as UpdatePayload;
   const approve = useAction(() => api.approveSuggestion(s.id));
@@ -44,7 +44,7 @@ function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
     if (p.priority !== undefined) rows.push(["Priority", PRI[t.priority], PRI[p.priority] ?? String(p.priority)]);
   }
   return (
-    <article className="mx-auto max-w-[720px] px-6 py-6" aria-label="Review change">
+    <article className="px-5 py-4" aria-label="Review change">
       <p className="mb-1 text-xs text-muted">From {ORIGIN[s.origin]} · {ago(s.createdAt)}</p>
       <h2 className="mb-4 text-xl font-semibold">Apply this change?</h2>
       {target.isError ? (
@@ -116,7 +116,7 @@ function Context({ ctx }: { ctx: Record<string, unknown> }) {
   );
 }
 
-function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; onDone: () => void }) {
+export function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; onDone: () => void }) {
   const p = s.payload as SuggestedTask;
   const initialProject = p.projectId ?? projects.find((x) => x.name.toLowerCase() === p.projectName?.toLowerCase())?.id ?? "";
   const [form, setForm] = useState({ title: p.title ?? "", description: p.description ?? "", dueDate: p.dueDate ?? "", projectId: initialProject, priority: p.priority ?? 0 });
@@ -147,7 +147,7 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
   const deadlineGuess = s.confidence?.dueDate !== undefined && s.confidence.dueDate < 0.8;
 
   return (
-    <article className="mx-auto max-w-[720px] px-6 py-6" aria-label="Review suggestion">
+    <article className="px-5 py-4" aria-label="Review suggestion">
       <p className="mb-1 flex items-center gap-1.5 text-xs text-muted">
         <SourceIcon source={s.origin === "chrome" ? "chrome" : s.origin === "claude" ? "claude" : "ai"} />
         From {ORIGIN[s.origin]} · {ago(s.createdAt)}
@@ -176,7 +176,7 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
             <label className="label" htmlFor="s-title">Title</label>
             <input id="s-title" className="field text-base font-medium" value={form.title} onChange={set("title")} />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="s-due">Due date {deadlineGuess && <span className="pill pill-warning ml-1">Guessed</span>}</label>
               <input id="s-due" type="date" className="field" value={form.dueDate} onChange={set("dueDate")} />
@@ -274,7 +274,7 @@ export function InboxScreen() {
                 <button onClick={() => setParams({ s: s.id })}
                   className={`block w-full rounded-[6px] px-3 py-2.5 text-left ${selected?.id === s.id ? "bg-active" : "hover:bg-raised"}`}>
                   <span className="flex items-baseline gap-2">
-                    <span className="flex-1 truncate font-medium">{title(s)}</span>
+                    <span className="flex-1 truncate font-medium">{suggestionTitle(s)}</span>
                     <span className="flex-none text-xs text-muted">{ago(s.createdAt)}</span>
                   </span>
                   <span className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">

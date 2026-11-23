@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tether — Mockup C: Soft tiles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* Style: pastel-consumer. Face: each project is a pale tile in its own hue with its dark as ink; big friendly radius. */
+:root{--ground:#f3f5f7;--surface:#fff;--border:#e6e6e6;--text:#1b1d1f;--muted:#5c6064;--accent:#1d5fd6;
+--edu:#dcf1ff;--edu-ink:#0a3a80;--adm:#fdecd3;--adm-ink:#7a3d00;--per:#e4f3ea;--per-ink:#1f5a36;--neg:#c41c29;--neg-soft:#ffedea}
+*{box-sizing:border-box}body{margin:0;background:var(--ground);color:var(--text);font:15px/22px Manrope,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+nav{padding:24px 16px;display:flex;flex-direction:column;gap:2px;background:var(--surface)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;padding:0 12px 22px}
+nav a{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:10px;color:var(--muted);text-decoration:none;font-weight:500}
+nav a.on{background:#eef3fb;color:var(--accent)}nav a span{margin-left:auto;font-variant-numeric:tabular-nums;font-size:13px;background:#eef1f4;color:var(--text);border-radius:99px;padding:0 8px;height:22px;line-height:22px}
+main{padding:32px 32px 48px;max-width:1240px}
+.head{display:flex;align-items:flex-end;gap:16px;margin-bottom:20px}
+h1{font:700 28px/34px Manrope;margin:0;letter-spacing:-.01em}.head p{margin:4px 0 0;color:var(--muted)}
+.head .add{margin-left:auto;height:44px;width:420px;border-radius:12px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;padding:0 14px;color:var(--muted);font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.card{background:var(--surface);border-radius:20px;padding:24px}
+.card h2{font:700 18px/24px Manrope;margin:0 0 4px;display:flex;align-items:baseline;gap:8px}.card h2 small{font-weight:500;color:var(--muted);font-size:14px}
+.span2{grid-column:span 2}
+/* signature: project tiles */
+.tiles{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.tile{border-radius:20px;padding:20px 22px;display:flex;flex-direction:column;gap:6px}
+.tile b{font-size:36px;line-height:40px;font-weight:600;font-variant-numeric:tabular-nums}.tile span{font-weight:600}.tile i{font-style:normal;font-size:14px;opacity:.85}
+.task{display:flex;align-items:center;gap:14px;padding:14px 0;border-top:1px solid #f1f2f3}
+.task:first-of-type{border-top:0}
+.cb{width:22px;height:22px;border-radius:7px;border:2px solid #c6cbd1;flex:none}
+.task .t{flex:1;min-width:0}.task .t b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.task .t i{font-style:normal;font-size:13px;color:var(--muted)}
+.chip{font-size:12px;font-weight:600;padding:0 9px;height:24px;line-height:24px;border-radius:8px;white-space:nowrap}
+.chip.late{background:var(--neg-soft);color:#831c1e}.chip.edu{background:var(--edu);color:var(--edu-ink)}.chip.adm{background:var(--adm);color:var(--adm-ink)}.chip.per{background:var(--per);color:var(--per-ink)}
+.sugg{background:#f7f9fb;border-radius:14px;padding:14px 16px;margin-top:12px}.sugg b{display:block;font-weight:600}.sugg i{font-style:normal;color:var(--muted);font-size:13px}
+.btns{display:flex;gap:8px;margin-top:12px}.btn{height:36px;padding:0 14px;border-radius:10px;border:1px solid #d6d9dd;background:#fff;font:600 13px Manrope}.btn.p{background:var(--accent);color:#fff;border-color:var(--accent)}
+.ring{display:flex;align-items:center;gap:16px;margin:12px 0}.ring svg{flex:none}.ring b{font-size:30px;font-weight:600}
+.plan li{margin:8px 0}.plan{padding-left:20px;margin:8px 0 0}.plan em{font-style:normal;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav aria-label="Main">
+    <div class="brand"><svg width="22" height="22" viewBox="0 0 20 20"><circle cx="7.5" cy="10" r="5" fill="none" stroke="#1b1d1f" stroke-width="2"/><circle cx="12.5" cy="10" r="5" fill="none" stroke="#1d5fd6" stroke-width="2"/></svg>Tether</div>
+    <a class="on" href="#">Today</a><a href="#">Inbox <span>3</span></a><a href="#">All tasks</a><a href="#">Notes</a><a href="#">Projects</a><a href="#">Review</a>
+    <a href="#" style="margin-top:auto">Settings</a>
+  </nav>
+  <main>
+    <div class="head">
+      <div><h1>Today</h1><p>Monday 23 November · 3 overdue · 1 of 6 done</p></div>
+      <div class="add">＋ Add a task…</div>
+    </div>
+    <div class="grid">
+      <div class="tiles" aria-label="Projects">
+        <div class="tile" style="background:var(--edu);color:var(--edu-ink)"><span>Educator platform</span><b>3</b><i>open · next: Finish profile page, Tue</i></div>
+        <div class="tile" style="background:var(--adm);color:var(--adm-ink)"><span>Administration</span><b>6</b><i>open · 2 overdue</i></div>
+        <div class="tile" style="background:var(--per);color:var(--per-ink)"><span>Personal</span><b>2</b><i>open · next: Book car service, today</i></div>
+      </div>
+
+      <section class="card span2" aria-labelledby="h-t">
+        <h2 id="h-t">To do today <small>6</small></h2>
+        <div class="task"><i class="cb"></i><div class="t"><b>Send updated teacher list to programme lead</b><i>Medium priority</i></div><span class="chip adm">Admin</span><span class="chip late">2 days late</span></div>
+        <div class="task"><i class="cb"></i><div class="t"><b>Approve October expense claims</b><i>Was due 09:00</i></div><span class="chip adm">Admin</span><span class="chip late">09:00</span></div>
+        <div class="task"><i class="cb"></i><div class="t"><b>Review course import from LearnWorlds</b><i>Due 15:30</i></div><span class="chip edu">Educator</span></div>
+        <div class="task"><i class="cb"></i><div class="t"><b>Book car service</b><i>Planned for today</i></div><span class="chip per">Personal</span></div>
+        <div class="task"><i class="cb"></i><div class="t"><b>Draft newsletter intro</b><i>Carried over from Sunday</i></div><span class="chip adm">Admin</span></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-p">
+        <h2 id="h-p">Your progress</h2>
+        <div class="ring"><svg width="84" height="84" viewBox="0 0 84 84"><circle cx="42" cy="42" r="36" fill="none" stroke="#eef1f4" stroke-width="8"/><circle cx="42" cy="42" r="36" fill="none" stroke="#1d5fd6" stroke-width="8" stroke-linecap="round" stroke-dasharray="226" stroke-dashoffset="188" transform="rotate(-90 42 42)"/></svg><div><b>1 of 6</b><br><span style="color:var(--muted)">done today</span></div></div>
+        <h2 style="font-size:15px;margin-top:16px">Plan my day</h2>
+        <ol class="plan"><li>Teacher list <em>2 days overdue</em></li><li>Expense claims <em>was due 09:00</em></li><li>LearnWorlds import <em>due 15:30</em></li></ol>
+      </section>
+
+      <section class="card span2" aria-labelledby="h-s">
+        <h2 id="h-s">Suggestions to review <small>3</small></h2>
+        <div class="sugg"><b>Follow up about the updated teacher list</b><i>From Chrome · due Friday (guessed) · looks like an existing task</i><div class="btns"><button class="btn p">Approve</button><button class="btn">Edit</button><button class="btn">Dismiss</button></div></div>
+        <div class="sugg"><b>Wire the profile save to the new API</b><i>From Claude Code · educator-platform · 3 steps left</i><div class="btns"><button class="btn p">Approve</button><button class="btn">Edit</button><button class="btn">Dismiss</button></div></div>
+      </section>
+      <section class="card" aria-labelledby="h-w">
+        <h2 id="h-w">Coming up</h2>
+        <div class="task"><div class="t"><b>Finish educator profile</b><i>Tomorrow</i></div><span class="chip edu">Edu</span></div>
+        <div class="task"><div class="t"><b>Reply to venue</b><i>Wednesday</i></div><span class="chip adm">Admin</span></div>
+        <div class="task"><div class="t"><b>Renew domain</b><i>Thursday</i></div><span class="chip per">Pers</span></div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

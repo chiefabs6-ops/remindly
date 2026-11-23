@@ -4,9 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { Project } from "@tether/core";
 import { api, errorMessage } from "../lib/api";
 import { useAction, useProjects } from "../lib/queries";
+import { TONES, toneDot, toneStyle } from "../lib/colors";
 
-/** Muted, distinguishable dots; colour is identity only, never data. */
-export const PROJECT_COLORS = ["#1d5fbf", "#2e7d32", "#b45309", "#0f766e", "#be123c", "#4d4d4d", "#8a8a8a"];
+/** Project tones (pale tile + dark ink); identity only, never data. */
+export const PROJECT_COLORS = TONES.map((t) => t.ink);
 
 export function ProjectForm({ onDone, submitLabel = "Add project" }: { onDone?: (p: Project) => void; submitLabel?: string }) {
   const [name, setName] = useState("");
@@ -23,8 +24,10 @@ export function ProjectForm({ onDone, submitLabel = "Add project" }: { onDone?: 
         <legend className="label">Colour</legend>
         <div className="flex h-9 items-center gap-1.5">
           {PROJECT_COLORS.map((c) => (
-            <button key={c} type="button" aria-label={`Colour ${c}`} aria-pressed={color === c} onClick={() => setColor(c)}
-              className={`size-5 rounded-full ${color === c ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : ""}`} style={{ background: c }} />
+            <button key={c} type="button" aria-label={TONES.find((t) => t.ink === c)?.label} aria-pressed={color === c} onClick={() => setColor(c)}
+              className={`size-6 rounded-[6px] ${color === c ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : ""}`} style={toneStyle(c)}>
+              <span className="block size-full rounded-[6px]" style={{ boxShadow: `inset 0 0 0 6px ${"var(--surface)"}`, background: toneDot(c), opacity: 0 }} />
+            </button>
           ))}
         </div>
       </fieldset>
@@ -42,7 +45,7 @@ function Row({ p }: { p: Project }) {
   const remove = useAction(() => api.deleteProject(p.id));
   return (
     <li className="flex min-h-12 items-center gap-3 border-b border-rule px-2 last:border-0">
-      <span className="size-2.5 flex-none rounded-full" style={{ background: p.color ?? "var(--faint)" }} />
+      <span className="size-2.5 flex-none rounded-[3px]" style={{ background: toneDot(p.color) }} />
       {editing ? (
         <form className="flex flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); rename.mutate(undefined, { onSuccess: () => setEditing(false) }); }}>
           <label htmlFor={`r-${p.id}`} className="sr-only">Project name</label>
