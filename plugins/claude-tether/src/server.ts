@@ -5,7 +5,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { chooseDir, describeRepo, rootFromUri, type RepoInfo } from "./project.js";
-import { TetherError, TetherOffline, call, dedupeKey, suggest } from "./tether.js";
+import { isGenericTitle } from "./generic.js";
+import { TetherError, TetherOffline, call, dedupeKey, suggest, type SuggestResult } from "./tether.js";
 
 const INSTRUCTIONS = `Tether is the user's personal task manager on this PC. Use it to hand off unfinished work.
 - When the user stops for now ("that's enough for today", "we'll finish this tomorrow", "park this"), or work is left unfinished at the end of a task, call get_project_context first, then suggest_task (or suggest_task_update if a matching open task exists).
@@ -49,21 +50,24 @@ function failure(e: unknown) {
 export function createServer() {
   const server = new McpServer({ name: "tether", version: "0.1.0" }, { instructions: INSTRUCTIONS });
 
-  let cachedRepo: { dir: string; info: RepoInfo; codeProjectId?: string } | null = null;
 
   async function repo(explicitDir?: string | null): Promise<RepoInfo> {
     let roots: string[] = [];
-    if (!explicitDir) {
+    // Ask for roots only if the client supports them, and never wait long: a client that
+    // ignores the request must not hang the tool call.
+    if (!explicitDir && server.server.getClientCapabilities()?.roots) {
       try {
-        const r = await server.server.listRoots();
+        const r = await Promise.race([
+          server.server.listRoots(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("roots timeout")), 1500)),
+        ]);
         roots = r.roots.map((x) => rootFromUri(x.uri)).filter((x): x is string => !!x);
       } catch {
-        /* client without roots support */
+        /* fall back to CLAUDE_PROJECT_DIR / cwd */
       }
     }
-    const dir = chooseDir({ explicit: explicitDir, roots });
-    if (cachedRepo?.dir !== dir) cachedRepo = { dir, info: await describeRepo(dir) };
-    return cachedRepo.info;
+    // Not cached: the branch is part of the resume hint and can change mid-session.
+    return describeRepo(chooseDir({ explicit: explicitDir, roots }));
   }
 
   type Context = {
@@ -79,7 +83,6 @@ export function createServer() {
       method: "POST",
       body: { rootDir: info.rootDir, name: info.name, gitRemote: info.gitRemote },
     });
-    if (cachedRepo) cachedRepo.codeProjectId = ctx.codeProject.id;
     return { info, ctx };
   }
 
@@ -206,7 +209,16 @@ export function createServer() {
     },
   );
 
-  const GENERIC = /^(continue|finish|work on|resume|follow up|todo|task|next steps?)( (it|this|work|stuff|things))?\.?$/i;
+  /** Words the reply from what Tether actually did with the suggestion. */
+  function outcome(r: SuggestResult, what: string): string {
+    if (r.state === "spooled") return `Tether is closed, so ${what} was saved and will appear in its Inbox the next time Tether runs.`;
+    if (r.status && r.status !== "pending")
+      return `Tether already had this exact suggestion (it was ${r.status} earlier), so nothing new was sent.`;
+    const dup = r.possibleDuplicateOf
+      ? ` Tether flagged it as similar to existing task [${r.possibleDuplicateOf}]; if that is the same work, use suggest_task_update on it instead.`
+      : "";
+    return `Sent ${what} to Tether's Inbox. It takes effect only when the user approves it.${dup}`;
+  }
 
   server.registerTool(
     "suggest_task",
@@ -230,18 +242,29 @@ export function createServer() {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (a) => {
-      if (GENERIC.test(a.title.trim()) || a.title.trim().split(/\s+/).length < 3)
+      if (isGenericTitle(a.title))
         return { ...text("Title is too generic. Name the actual work (e.g. 'Finish educator profile validation')."), isError: true };
       try {
-        const { info, ctx } = await context(a.projectDir);
-        const payload = {
-          title: a.title.trim(),
+        const info = await repo(a.projectDir);
+        let codeProjectId: string | null = null;
+        let mapped: string | null = null;
+        try {
+          const ctx = await context(a.projectDir);
+          codeProjectId = ctx.ctx.codeProject.id;
+          mapped = ctx.ctx.project?.id ?? null;
+        } catch (e) {
+          if (!(e instanceof TetherOffline)) throw e;
+        }
+        const title = a.title.trim();
+        const payload: Record<string, unknown> = {
+          title,
           description: a.description ?? null,
           dueDate: a.dueDate ?? null,
           dueTime: a.dueDate ? (a.dueTime ?? null) : null,
           priority: a.priority ?? null,
-          projectId: a.projectId ?? ctx.project?.id ?? null,
-          codeProjectId: ctx.codeProject.id,
+          projectId: a.projectId ?? mapped,
+          // Offline: Tether resolves the repo when it imports the spooled file.
+          ...(codeProjectId ? { codeProjectId } : { repo: { rootDir: info.rootDir, name: info.name, gitRemote: info.gitRemote } }),
         };
         const r = await suggest({
           kind: "task",
@@ -255,25 +278,10 @@ export function createServer() {
             repository: `${info.name} (${info.rootDir})`,
             branch: info.branch ?? "",
           },
-          dedupeKey: dedupeKey([info.rootDir, payload.title, a.remaining]),
+          dedupeKey: dedupeKey([info.rootDir, title, a.remaining]),
         });
-        return text(`Sent to Tether's Inbox for approval: "${payload.title}". It becomes a task only when the user approves it.`
-          + (r.state === "sent" ? "" : ""));
+        return text(outcome(r, `the task "${title}"`));
       } catch (e) {
-        if (e instanceof TetherOffline) {
-          // Repo lookup needs Tether; spool the suggestion without the code project link.
-          const info = await repo(a.projectDir);
-          const r = await suggest({
-            kind: "task",
-            origin: "claude",
-            payload: { title: a.title.trim(), description: a.description ?? null, dueDate: a.dueDate ?? null, dueTime: a.dueDate ? (a.dueTime ?? null) : null, priority: a.priority ?? null, projectId: a.projectId ?? null },
-            context: { completed: a.completed ?? [], remaining: a.remaining, why: a.why ?? "", resumeHint: a.resumeHint, repository: `${info.name} (${info.rootDir})`, branch: info.branch ?? "" },
-            dedupeKey: dedupeKey([info.rootDir, a.title.trim(), a.remaining]),
-          });
-          return text(r.state === "spooled"
-            ? `Tether is closed, so the suggestion "${a.title.trim()}" was saved and will appear in its Inbox the next time Tether runs.`
-            : `Sent to Tether's Inbox for approval: "${a.title.trim()}".`);
-        }
         return failure(e);
       }
     },
@@ -300,8 +308,8 @@ export function createServer() {
       const payload = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
       if (!Object.keys(payload).length) return { ...text("Nothing to change."), isError: true };
       try {
-        await suggest({ kind: "task_update", origin: "claude", targetTaskId: taskId, payload, dedupeKey: dedupeKey([taskId, payload]) });
-        return text(`Sent the change to task ${taskId} to Tether for approval.`);
+        const r = await suggest({ kind: "task_update", origin: "claude", targetTaskId: taskId, payload, dedupeKey: dedupeKey([taskId, payload, new Date().toISOString().slice(0, 10)]) });
+        return text(outcome(r, `the change to task ${taskId}`));
       } catch (e) {
         return failure(e);
       }
@@ -328,7 +336,7 @@ export function createServer() {
           payload: { title, bodyMd: body, kind: kind ?? "general" },
           dedupeKey: dedupeKey(["note", title, body]),
         });
-        return text(r.state === "sent" ? `Sent the note "${title}" to Tether for approval.` : `Tether is closed; the note "${title}" will appear in its Inbox when it runs.`);
+        return text(outcome(r, `the note "${title}"`));
       } catch (e) {
         return failure(e);
       }

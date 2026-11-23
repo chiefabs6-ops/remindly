@@ -166,7 +166,7 @@ pub fn context(conn: &Connection, input: &ResolveInput) -> AppResult<ProjectCont
         stmt.query_map(params![cp.id, cp.project_id], tasks::from_row)?
             .collect::<Result<_, _>>()?
     };
-    let pending = suggestions::list(conn, Some(SuggestionStatus::Pending), 50)?
+    let pending = suggestions::list(conn, Some(SuggestionStatus::Pending), 500)?
         .into_iter()
         .filter(|s| s.origin == Origin::Claude)
         .filter(|s| {

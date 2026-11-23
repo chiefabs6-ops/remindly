@@ -207,13 +207,43 @@ fn validate_payload(conn: &Connection, s: &NewSuggestion) -> AppResult<Option<St
                 .target_task_id
                 .as_deref()
                 .ok_or_else(|| AppError::invalid("task_update needs targetTaskId"))?;
-            tasks::get(conn, target)?;
+            let t = tasks::get(conn, target)?;
             let u: SuggestedUpdate = serde_json::from_value(s.payload.clone())
                 .map_err(|e| AppError::invalid(format!("invalid task_update payload: {e}")))?;
             check_update(&u)?;
+            let date_after = match &u.due_date {
+                Some(d) => d.clone(),
+                None => t.due_date.clone(),
+            };
+            if matches!(u.due_time, Some(Some(_))) && date_after.is_none() {
+                return Err(AppError::invalid("a due time needs a due date"));
+            }
             Ok(None)
         }
     }
+}
+
+/// A Claude task spooled while Tether was closed carries `repo: {rootDir, name, gitRemote}`
+/// instead of `codeProjectId`; resolve it now so the task links to its repo.
+fn attach_repo(conn: &Connection, s: &NewSuggestion) -> AppResult<serde_json::Value> {
+    let mut payload = s.payload.clone();
+    if s.kind != SuggestionKind::Task {
+        return Ok(payload);
+    }
+    if let Some(obj) = payload.as_object_mut() {
+        if let Some(repo) = obj.remove("repo")
+            && !obj.contains_key("codeProjectId")
+        {
+            let input: code_projects::ResolveInput = serde_json::from_value(repo)
+                .map_err(|e| AppError::invalid(format!("invalid repo: {e}")))?;
+            let cp = code_projects::resolve(conn, &input)?;
+            obj.insert("codeProjectId".into(), serde_json::Value::from(cp.id));
+        }
+        if let Some(id) = obj.get("codeProjectId").and_then(|v| v.as_str()) {
+            code_projects::get(conn, id).map_err(|_| AppError::invalid("unknown codeProjectId"))?;
+        }
+    }
+    Ok(payload)
 }
 
 /// Store a suggestion. Idempotent on `dedupe_key` whatever the earlier one's status, so a client
@@ -240,6 +270,11 @@ pub fn create(conn: &Connection, s: &NewSuggestion) -> AppResult<Suggestion> {
             return get(conn, &id);
         }
     }
+    let payload = attach_repo(conn, s)?;
+    let s = &NewSuggestion {
+        payload,
+        ..s.clone()
+    };
     let title = validate_payload(conn, s)?;
     let possible_dup = match &title {
         Some(t) => find_similar_task(conn, t)?,
@@ -734,6 +769,33 @@ mod tests {
             ..upd
         };
         assert!(db.write(|c| create(c, &empty)).is_err());
+    }
+
+    #[test]
+    fn spooled_claude_task_resolves_its_repo() {
+        let db = db();
+        let s = NewSuggestion {
+            kind: SuggestionKind::Task,
+            origin: Origin::Claude,
+            target_task_id: None,
+            payload: json!({ "title": "Finish profile page", "repo": { "rootDir": "C:\\Code\\Edu", "name": "edu" } }),
+            context: None,
+            confidence: None,
+            dedupe_key: None,
+            captured_at: None,
+        };
+        let created = db.write(|c| create(c, &s)).unwrap();
+        assert!(created.payload.get("repo").is_none());
+        let cp = created.payload["codeProjectId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(db.read(|c| code_projects::get(c, &cp)).unwrap().name, "edu");
+        let bogus = NewSuggestion {
+            payload: json!({ "title": "Finish profile page", "codeProjectId": "nope" }),
+            ..s
+        };
+        assert!(db.write(|c| create(c, &bogus)).is_err());
     }
 
     #[test]

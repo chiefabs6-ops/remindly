@@ -75,10 +75,17 @@ export function dedupeKey(parts: unknown[]): string {
  * Send a suggestion; if Tether is closed, write it to the spool folder Tether imports on start.
  * Returns "sent" with the created suggestion, or "spooled".
  */
-export async function suggest(s: NewSuggestion): Promise<{ state: "sent"; id: string } | { state: "spooled"; file: string }> {
+export type SuggestResult =
+  | { state: "sent"; id: string; status: string; possibleDuplicateOf: string | null }
+  | { state: "spooled"; file: string; status?: undefined; possibleDuplicateOf?: undefined };
+
+export async function suggest(s: NewSuggestion): Promise<SuggestResult> {
   try {
-    const created = await call<{ id: string }>("/v1/suggestions", { method: "POST", body: s });
-    return { state: "sent", id: created.id };
+    const created = await call<{ id: string; status: string; possibleDuplicateOf: string | null }>("/v1/suggestions", {
+      method: "POST",
+      body: s,
+    });
+    return { state: "sent", id: created.id, status: created.status, possibleDuplicateOf: created.possibleDuplicateOf };
   } catch (e) {
     if (!(e instanceof TetherOffline)) throw e;
     const dir = join(dataDir(), "spool");

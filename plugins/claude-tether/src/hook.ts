@@ -1,6 +1,7 @@
 // SessionStart hook: tell Claude which Tether tasks are open for this repo.
 // Must be fast and silent: any failure prints nothing and exits 0, so a session never breaks.
 
+import { inertTitle } from "./generic.js";
 import { describeRepo } from "./project.js";
 import { call } from "./tether.js";
 
@@ -17,7 +18,7 @@ async function readStdin(): Promise<string> {
 }
 
 export async function contextLine(cwd: string): Promise<string | null> {
-  const info = await describeRepo(cwd);
+  const info = await describeRepo(cwd, { branch: false });
   const ctx = await call<Ctx>("/v1/code-projects/resolve", {
     method: "POST",
     body: { rootDir: info.rootDir, name: info.name, gitRemote: info.gitRemote },
@@ -26,7 +27,7 @@ export async function contextLine(cwd: string): Promise<string | null> {
   if (!ctx.openTasks.length && !ctx.pendingSuggestions.length) return null;
   const tasks = ctx.openTasks
     .slice(0, 5)
-    .map((t) => `${t.title}${t.dueDate ? ` (due ${t.dueDate})` : ""} [${t.id}]`)
+    .map((t) => `${inertTitle(t.title)}${t.dueDate ? ` (due ${t.dueDate})` : ""} [${t.id}]`)
     .join("; ");
   // Factual statements only, no instructions (hook output is treated as context).
   return [

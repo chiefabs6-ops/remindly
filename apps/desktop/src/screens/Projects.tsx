@@ -77,7 +77,7 @@ function CodeFolders({ projects }: { projects: Project[] }) {
   return (
     <section className="mt-8" aria-labelledby="cf-h">
       <h2 id="cf-h" className="font-medium">Claude Code folders</h2>
-      <p className="mt-1 text-muted">Repos where Claude Code has used Tether. Link each to a project so its suggestions land there.</p>
+      <p className="mt-1 text-muted">Folders you have opened in Claude Code. Link each to a project so its suggestions land there.</p>
       <ul className="mt-3 rounded-[8px] border border-line bg-surface px-2" aria-label="Claude Code folders">
         {list.length === 0 && <li className="p-3 text-muted">None yet. They appear after Claude Code first talks to Tether from a repo.</li>}
         {list.map((f) => (
@@ -95,6 +95,7 @@ function CodeFolders({ projects }: { projects: Project[] }) {
           </li>
         ))}
       </ul>
+      {link.isError && <p className="mt-2 text-negative">{errorMessage(link.error)}</p>}
     </section>
   );
 }

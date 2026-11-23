@@ -34492,11 +34492,11 @@ function rootFromUri(uri) {
     return null;
   }
 }
-async function describeRepo(dir) {
+async function describeRepo(dir, opts = {}) {
   const top = await git(dir, ["rev-parse", "--show-toplevel"]) ?? dir;
   const rootDir = top.replace(/\//g, "\\");
   const remote = safeRemote(await git(rootDir, ["remote", "get-url", "origin"]));
-  const branch = await git(rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = opts.branch === false ? null : await git(rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
   return {
     rootDir,
     name: repoNameFromRemote(remote) ?? basename(rootDir),
@@ -34507,6 +34507,50 @@ async function describeRepo(dir) {
 function chooseDir(opts) {
   const env = opts.env ?? process.env;
   return opts.explicit?.trim() || opts.roots?.find(Boolean) || env.CLAUDE_PROJECT_DIR?.trim() || opts.cwd || process.cwd();
+}
+
+// src/generic.ts
+var VAGUE_WORDS = /* @__PURE__ */ new Set([
+  "continue",
+  "continuing",
+  "finish",
+  "finishing",
+  "work",
+  "working",
+  "on",
+  "it",
+  "this",
+  "that",
+  "the",
+  "stuff",
+  "things",
+  "task",
+  "tasks",
+  "todo",
+  "to",
+  "do",
+  "follow",
+  "up",
+  "resume",
+  "next",
+  "steps",
+  "step",
+  "remaining",
+  "rest",
+  "of",
+  "pick",
+  "back",
+  "keep",
+  "going",
+  "later",
+  "tomorrow",
+  "again",
+  "more"
+]);
+function isGenericTitle(title) {
+  const words = title.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (words.length < 3) return true;
+  return words.every((w) => VAGUE_WORDS.has(w));
 }
 
 // src/tether.ts
@@ -34561,8 +34605,11 @@ function dedupeKey(parts) {
 }
 async function suggest(s) {
   try {
-    const created = await call("/v1/suggestions", { method: "POST", body: s });
-    return { state: "sent", id: created.id };
+    const created = await call("/v1/suggestions", {
+      method: "POST",
+      body: s
+    });
+    return { state: "sent", id: created.id, status: created.status, possibleDuplicateOf: created.possibleDuplicateOf };
   } catch (e) {
     if (!(e instanceof TetherOffline)) throw e;
     const dir = join(dataDir(), "spool");
@@ -34599,19 +34646,19 @@ function failure2(e) {
 }
 function createServer() {
   const server = new McpServer({ name: "tether", version: "0.1.0" }, { instructions: INSTRUCTIONS });
-  let cachedRepo = null;
   async function repo(explicitDir) {
     let roots = [];
-    if (!explicitDir) {
+    if (!explicitDir && server.server.getClientCapabilities()?.roots) {
       try {
-        const r = await server.server.listRoots();
+        const r = await Promise.race([
+          server.server.listRoots(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("roots timeout")), 1500))
+        ]);
         roots = r.roots.map((x) => rootFromUri(x.uri)).filter((x) => !!x);
       } catch {
       }
     }
-    const dir = chooseDir({ explicit: explicitDir, roots });
-    if (cachedRepo?.dir !== dir) cachedRepo = { dir, info: await describeRepo(dir) };
-    return cachedRepo.info;
+    return describeRepo(chooseDir({ explicit: explicitDir, roots }));
   }
   async function context(dir) {
     const info = await repo(dir);
@@ -34619,7 +34666,6 @@ function createServer() {
       method: "POST",
       body: { rootDir: info.rootDir, name: info.name, gitRemote: info.gitRemote }
     });
-    if (cachedRepo) cachedRepo.codeProjectId = ctx.codeProject.id;
     return { info, ctx };
   }
   server.registerTool(
@@ -34746,7 +34792,13 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
       }
     }
   );
-  const GENERIC = /^(continue|finish|work on|resume|follow up|todo|task|next steps?)( (it|this|work|stuff|things))?\.?$/i;
+  function outcome(r, what) {
+    if (r.state === "spooled") return `Tether is closed, so ${what} was saved and will appear in its Inbox the next time Tether runs.`;
+    if (r.status && r.status !== "pending")
+      return `Tether already had this exact suggestion (it was ${r.status} earlier), so nothing new was sent.`;
+    const dup = r.possibleDuplicateOf ? ` Tether flagged it as similar to existing task [${r.possibleDuplicateOf}]; if that is the same work, use suggest_task_update on it instead.` : "";
+    return `Sent ${what} to Tether's Inbox. It takes effect only when the user approves it.${dup}`;
+  }
   server.registerTool(
     "suggest_task",
     {
@@ -34768,18 +34820,29 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async (a) => {
-      if (GENERIC.test(a.title.trim()) || a.title.trim().split(/\s+/).length < 3)
+      if (isGenericTitle(a.title))
         return { ...text("Title is too generic. Name the actual work (e.g. 'Finish educator profile validation')."), isError: true };
       try {
-        const { info, ctx } = await context(a.projectDir);
+        const info = await repo(a.projectDir);
+        let codeProjectId = null;
+        let mapped = null;
+        try {
+          const ctx = await context(a.projectDir);
+          codeProjectId = ctx.ctx.codeProject.id;
+          mapped = ctx.ctx.project?.id ?? null;
+        } catch (e) {
+          if (!(e instanceof TetherOffline)) throw e;
+        }
+        const title = a.title.trim();
         const payload = {
-          title: a.title.trim(),
+          title,
           description: a.description ?? null,
           dueDate: a.dueDate ?? null,
           dueTime: a.dueDate ? a.dueTime ?? null : null,
           priority: a.priority ?? null,
-          projectId: a.projectId ?? ctx.project?.id ?? null,
-          codeProjectId: ctx.codeProject.id
+          projectId: a.projectId ?? mapped,
+          // Offline: Tether resolves the repo when it imports the spooled file.
+          ...codeProjectId ? { codeProjectId } : { repo: { rootDir: info.rootDir, name: info.name, gitRemote: info.gitRemote } }
         };
         const r = await suggest({
           kind: "task",
@@ -34793,21 +34856,10 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
             repository: `${info.name} (${info.rootDir})`,
             branch: info.branch ?? ""
           },
-          dedupeKey: dedupeKey([info.rootDir, payload.title, a.remaining])
+          dedupeKey: dedupeKey([info.rootDir, title, a.remaining])
         });
-        return text(`Sent to Tether's Inbox for approval: "${payload.title}". It becomes a task only when the user approves it.` + (r.state === "sent" ? "" : ""));
+        return text(outcome(r, `the task "${title}"`));
       } catch (e) {
-        if (e instanceof TetherOffline) {
-          const info = await repo(a.projectDir);
-          const r = await suggest({
-            kind: "task",
-            origin: "claude",
-            payload: { title: a.title.trim(), description: a.description ?? null, dueDate: a.dueDate ?? null, dueTime: a.dueDate ? a.dueTime ?? null : null, priority: a.priority ?? null, projectId: a.projectId ?? null },
-            context: { completed: a.completed ?? [], remaining: a.remaining, why: a.why ?? "", resumeHint: a.resumeHint, repository: `${info.name} (${info.rootDir})`, branch: info.branch ?? "" },
-            dedupeKey: dedupeKey([info.rootDir, a.title.trim(), a.remaining])
-          });
-          return text(r.state === "spooled" ? `Tether is closed, so the suggestion "${a.title.trim()}" was saved and will appear in its Inbox the next time Tether runs.` : `Sent to Tether's Inbox for approval: "${a.title.trim()}".`);
-        }
         return failure2(e);
       }
     }
@@ -34832,8 +34884,8 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
       const payload = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== void 0));
       if (!Object.keys(payload).length) return { ...text("Nothing to change."), isError: true };
       try {
-        await suggest({ kind: "task_update", origin: "claude", targetTaskId: taskId, payload, dedupeKey: dedupeKey([taskId, payload]) });
-        return text(`Sent the change to task ${taskId} to Tether for approval.`);
+        const r = await suggest({ kind: "task_update", origin: "claude", targetTaskId: taskId, payload, dedupeKey: dedupeKey([taskId, payload, (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)]) });
+        return text(outcome(r, `the change to task ${taskId}`));
       } catch (e) {
         return failure2(e);
       }
@@ -34859,7 +34911,7 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
           payload: { title, bodyMd: body, kind: kind ?? "general" },
           dedupeKey: dedupeKey(["note", title, body])
         });
-        return text(r.state === "sent" ? `Sent the note "${title}" to Tether for approval.` : `Tether is closed; the note "${title}" will appear in its Inbox when it runs.`);
+        return text(outcome(r, `the note "${title}"`));
       } catch (e) {
         return failure2(e);
       }

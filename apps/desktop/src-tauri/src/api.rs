@@ -223,9 +223,9 @@ async fn resolve_code_project(
     Json(body): Json<code_projects::ResolveInput>,
 ) -> AppResult<Json<code_projects::ProjectContext>> {
     let db = s.app.db.clone();
-    Ok(Json(
-        blocking(move || db.write(|c| code_projects::context(c, &body))).await?,
-    ))
+    let ctx = blocking(move || db.write(|c| code_projects::context(c, &body))).await?;
+    (s.on_change)(); // the folder list on the Projects screen may have a new entry
+    Ok(Json(ctx))
 }
 
 #[derive(Deserialize)]

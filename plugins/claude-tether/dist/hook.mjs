@@ -1,5 +1,11 @@
 import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);
 
+// src/generic.ts
+function inertTitle(title, max = 80) {
+  const t = title.replace(/[\r\n\t]+/g, " ").replace(/"/g, "'").trim();
+  return `"${t.length > max ? t.slice(0, max - 1) + "\u2026" : t}"`;
+}
+
 // src/project.ts
 import { execFile } from "node:child_process";
 import { basename } from "node:path";
@@ -22,11 +28,11 @@ function safeRemote(remote) {
   if (!remote) return null;
   return remote.replace(/\/\/[^/@]+@/, "//");
 }
-async function describeRepo(dir) {
+async function describeRepo(dir, opts = {}) {
   const top = await git(dir, ["rev-parse", "--show-toplevel"]) ?? dir;
   const rootDir = top.replace(/\//g, "\\");
   const remote = safeRemote(await git(rootDir, ["remote", "get-url", "origin"]));
-  const branch = await git(rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = opts.branch === false ? null : await git(rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
   return {
     rootDir,
     name: repoNameFromRemote(remote) ?? basename(rootDir),
@@ -89,14 +95,14 @@ async function readStdin() {
   return data;
 }
 async function contextLine(cwd) {
-  const info = await describeRepo(cwd);
+  const info = await describeRepo(cwd, { branch: false });
   const ctx = await call("/v1/code-projects/resolve", {
     method: "POST",
     body: { rootDir: info.rootDir, name: info.name, gitRemote: info.gitRemote },
     timeoutMs: 1500
   });
   if (!ctx.openTasks.length && !ctx.pendingSuggestions.length) return null;
-  const tasks = ctx.openTasks.slice(0, 5).map((t) => `${t.title}${t.dueDate ? ` (due ${t.dueDate})` : ""} [${t.id}]`).join("; ");
+  const tasks = ctx.openTasks.slice(0, 5).map((t) => `${inertTitle(t.title)}${t.dueDate ? ` (due ${t.dueDate})` : ""} [${t.id}]`).join("; ");
   return [
     `Tether has ${ctx.openTasks.length} open task(s) for this repository${ctx.project ? ` (project ${ctx.project.name})` : ""}${tasks ? `: ${tasks}` : ""}.`,
     ctx.pendingSuggestions.length ? `${ctx.pendingSuggestions.length} Claude suggestion(s) for it await the user's approval.` : ""

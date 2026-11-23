@@ -40,11 +40,11 @@ export function rootFromUri(uri: string): string | null {
   }
 }
 
-export async function describeRepo(dir: string): Promise<RepoInfo> {
+export async function describeRepo(dir: string, opts: { branch?: boolean } = {}): Promise<RepoInfo> {
   const top = (await git(dir, ["rev-parse", "--show-toplevel"])) ?? dir;
   const rootDir = top.replace(/\//g, "\\");
   const remote = safeRemote(await git(rootDir, ["remote", "get-url", "origin"]));
-  const branch = await git(rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = opts.branch === false ? null : await git(rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
   return {
     rootDir,
     name: repoNameFromRemote(remote) ?? basename(rootDir),
