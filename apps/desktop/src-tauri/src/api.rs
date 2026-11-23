@@ -16,11 +16,10 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::json;
-use subtle::ConstantTimeEq;
 
 use crate::{
     error::{AppError, AppResult},
@@ -32,12 +31,16 @@ use crate::{
 /// Settings key holding extra allowed `Origin` values (e.g. `chrome-extension://<id>`).
 pub const ALLOWED_ORIGINS_KEY: &str = "api.allowedOrigins";
 const MAX_BODY: usize = 256 * 1024;
+/// The one route an unlisted extension origin may call: it proves itself with the pairing code.
+const PAIR_PATH: &str = "/v1/pair";
 
 #[derive(Clone)]
 pub struct ApiState {
     pub app: AppState,
     /// Called after a write so the UI can refresh.
     pub on_change: Arc<dyn Fn() + Send + Sync>,
+    /// Bring the main window to the front.
+    pub on_open: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl IntoResponse for AppError {
@@ -72,10 +75,12 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/tasks", get(list_tasks))
         .route("/v1/tasks/{id}", get(get_task))
         .route("/v1/projects", get(list_projects))
+        .route("/v1/open", post(open_app))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     Router::new()
         .route("/v1/health", get(health))
+        .route(PAIR_PATH, post(pair))
         .merge(protected)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -124,7 +129,9 @@ async fn check_host_and_origin(State(s): State<ApiState>, req: Request, next: Ne
     if !host_ok(req.headers()) {
         return refuse(StatusCode::FORBIDDEN, "forbidden", "bad host");
     }
-    if let Some(origin) = req.headers().get(header::ORIGIN) {
+    if let Some(origin) = req.headers().get(header::ORIGIN)
+        && req.uri().path() != PAIR_PATH
+    {
         let origin = origin.to_str().unwrap_or("").to_string();
         let db = s.app.db.clone();
         let allowed = blocking(move || db.read(|c| settings::get(c, ALLOWED_ORIGINS_KEY)))
@@ -147,8 +154,7 @@ async fn require_token(State(s): State<ApiState>, req: Request, next: Next) -> R
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let ok: bool = presented.as_bytes().ct_eq(s.app.token.as_bytes()).into();
-    if !ok {
+    if !s.app.token_matches(presented) {
         return refuse(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
@@ -162,6 +168,53 @@ async fn require_token(State(s): State<ApiState>, req: Request, next: Next) -> R
 
 async fn health() -> Json<serde_json::Value> {
     Json(json!({ "ok": true, "app": "tether", "version": env!("CARGO_PKG_VERSION") }))
+}
+
+#[derive(Deserialize)]
+struct PairBody {
+    code: String,
+}
+
+/// Pair a browser extension: the code shown in Tether's settings buys the token, and the
+/// extension's origin is added to the allow-list. Only `chrome-extension://` origins may pair.
+async fn pair(
+    State(s): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<PairBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let id = origin.strip_prefix("chrome-extension://").unwrap_or("");
+    if id.len() != 32 || !id.bytes().all(|b| (b'a'..=b'p').contains(&b)) {
+        return Err(AppError::invalid(
+            "Only the Tether Chrome extension can pair.",
+        ));
+    }
+    let token = s.app.redeem_pairing(&body.code)?;
+    let db = s.app.db.clone();
+    blocking(move || {
+        db.write(|c| {
+            let mut list: Vec<serde_json::Value> = settings::get(c, ALLOWED_ORIGINS_KEY)?
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default();
+            if !list.iter().any(|v| v.as_str() == Some(origin.as_str())) {
+                list.push(serde_json::Value::from(origin.clone()));
+            }
+            settings::set(c, ALLOWED_ORIGINS_KEY, &serde_json::Value::Array(list))
+        })
+    })
+    .await?;
+    log::info!("browser extension paired");
+    (s.on_change)();
+    Ok(Json(json!({ "token": token })))
+}
+
+async fn open_app(State(s): State<ApiState>) -> Json<serde_json::Value> {
+    (s.on_open)();
+    Json(json!({ "ok": true }))
 }
 
 async fn create_suggestion(
@@ -267,7 +320,9 @@ mod tests {
     fn setup() -> (Router, String, Arc<AtomicUsize>, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("tether-api-{}", ulid::Ulid::generate()));
         let app = AppState::open(&dir).unwrap();
-        let token = app.token.to_string();
+        let token = app.token();
+        let pair_app = app.clone();
+        PAIR_APP.with(|p| *p.borrow_mut() = Some(pair_app));
         let changes = Arc::new(AtomicUsize::new(0));
         let c = changes.clone();
         let r = router(ApiState {
@@ -275,8 +330,51 @@ mod tests {
             on_change: Arc::new(move || {
                 c.fetch_add(1, Ordering::SeqCst);
             }),
+            on_open: Arc::new(|| {}),
         });
         (r, token, changes, dir)
+    }
+
+    thread_local! {
+        static PAIR_APP: std::cell::RefCell<Option<AppState>> = const { std::cell::RefCell::new(None) };
+    }
+
+    const EXT: &str = "chrome-extension://elloobjbbdkoimibpcojhdgeocooibnl";
+
+    #[tokio::test]
+    async fn pairing_returns_token_and_allows_the_extension_origin() {
+        let (r, token, _, dir) = setup();
+        let app = PAIR_APP.with(|p| p.borrow().clone()).unwrap();
+        let pair = |code: &str, origin: &str| {
+            req("POST", "/v1/pair")
+                .header(header::ORIGIN, origin)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({ "code": code }).to_string()))
+                .unwrap()
+        };
+        // Before pairing, the extension origin is refused on protected routes.
+        let list = || {
+            req("GET", "/v1/projects")
+                .header(header::ORIGIN, EXT)
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        assert_eq!(send(&r, list()).await.0, StatusCode::FORBIDDEN);
+
+        let code = app.start_pairing();
+        // A website cannot pair, even with the right code.
+        assert_eq!(
+            send(&r, pair(&code, "https://evil.example.com")).await.0,
+            StatusCode::BAD_REQUEST
+        );
+        let (s, body) = send(&r, pair(&code, EXT)).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(body["token"], token.as_str());
+        assert_eq!(send(&r, list()).await.0, StatusCode::OK);
+        // Single use.
+        assert_eq!(send(&r, pair(&code, EXT)).await.0, StatusCode::BAD_REQUEST);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn req(method: &str, uri: &str) -> axum::http::request::Builder {

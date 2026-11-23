@@ -106,10 +106,16 @@ pub fn run() {
             }
 
             let handle = app.handle().clone();
+            let opener = app.handle().clone();
             tauri::async_runtime::spawn(api::serve(ApiState {
                 app: state,
                 on_change: Arc::new(move || {
                     let _ = handle.emit(DATA_CHANGED, ());
+                }),
+                on_open: Arc::new(move || {
+                    // Window work must happen on the main thread.
+                    let h = opener.clone();
+                    let _ = opener.run_on_main_thread(move || show_main_window(&h));
                 }),
             }));
 
@@ -159,6 +165,9 @@ pub fn run() {
             commands::settings_get_all,
             commands::settings_set,
             commands::api_info,
+            commands::pairing_start,
+            commands::paired_browsers,
+            commands::unpair_all,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

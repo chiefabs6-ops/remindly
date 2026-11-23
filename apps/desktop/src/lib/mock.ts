@@ -486,6 +486,11 @@ const handlers: Record<string, (a: Args) => unknown> = {
   settings_set: ({ key, value }) => {
     store.settings[key] = value;
   },
+  pairing_start: () => ({ code: String(Math.floor(100000 + Math.random() * 900000)), expiresInSecs: 120 }),
+  paired_browsers: () => (store.settings.paired as string[] | undefined) ?? [],
+  unpair_all: () => {
+    store.settings.paired = [];
+  },
   api_info: () => ({ url: "http://127.0.0.1:47821", tokenHint: "3f9a", dataDir: "%APPDATA%\\ie.tether.app" }),
 };
 

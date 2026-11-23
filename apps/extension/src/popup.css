@@ -1,0 +1,51 @@
+/* Same "achromatic ledger" tokens as the desktop app. */
+:root {
+  --ground: #f2f4f7; --surface: #fff; --line: #e3e6ea; --control: #d0d4da;
+  --text: #0a0a0a; --muted: #5f6368; --primary: #141414; --today: #1d5fbf;
+  --positive: #2e7d32; --negative: #c4242a; --warn-bg: #fffbeb; --warn-ink: #92400e;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #000; --surface: #111; --line: #222; --control: #444;
+    --text: #fff; --muted: #b4b4b4; --primary: #fff; --today: #6aa1f0;
+    --positive: #3fc07a; --negative: #e5566f; --warn-bg: #2a2110; --warn-ink: #f0c36d;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  width: 340px; margin: 0; padding: 12px 14px 14px; background: var(--ground); color: var(--text);
+  font: 14px/20px "Segoe UI", system-ui, sans-serif;
+}
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.state { margin-left: auto; font-size: 12px; color: var(--muted); }
+.state.off { color: var(--warn-ink); }
+h1 { font-size: 16px; margin: 4px 0; }
+h2 { font-size: 14px; font-weight: 500; margin: 0; }
+.muted { color: var(--muted); }
+label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin: 8px 0 6px; }
+input, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--control); border-radius: 6px;
+  background: var(--surface); color: var(--text); font: inherit;
+}
+textarea { resize: vertical; }
+button {
+  height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--control);
+  background: var(--surface); color: var(--text); font: inherit; font-weight: 500; cursor: pointer;
+}
+button:active { transform: translateY(1px); }
+button.primary { background: var(--primary); border-color: var(--primary); color: var(--ground); }
+button.link { border: 0; background: none; color: var(--muted); text-decoration: underline; margin-left: auto; }
+:focus-visible { outline: 2px solid var(--today); outline-offset: 2px; }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.between { justify-content: space-between; margin-top: 16px; }
+ul { list-style: none; padding: 0; margin: 6px 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+li { display: flex; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+li:last-child { border-bottom: 0; }
+li .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+li .s { flex: none; font-size: 12px; color: var(--muted); }
+li .s.queued { color: var(--warn-ink); }
+li.empty { color: var(--muted); }
+.msg { min-height: 20px; margin: 10px 0 0; font-size: 13px; }
+.msg.ok { color: var(--positive); }
+.msg.err { color: var(--negative); }
