@@ -70,6 +70,61 @@ export function mergeSegments(existing: MeetSegment[], incoming: MeetSegment[], 
   return all.length > cap ? all.slice(all.length - cap) : all;
 }
 
+export const MEET_STALE_MS = 15 * 60 * 1000;
+export const MAX_MEET_FAILED = 5;
+
+/** A call in progress, kept in storage.local under `meet:<key>`. */
+export interface MeetSession {
+  meetCode: string;
+  title: string | null;
+  startedAt: string;
+  updatedAt: string;
+  segments: MeetSegment[];
+}
+
+/** True when a session has been quiet for more than 15 minutes (or its time is unreadable). */
+export function isStaleSession(updatedAt: string | undefined, nowMs: number, staleMs = MEET_STALE_MS): boolean {
+  const t = Date.parse(updatedAt ?? "");
+  return Number.isNaN(t) || nowMs - t > staleMs;
+}
+
+/** Apply a `meet:segments` message to a session. Empty `segments` (heartbeat) still bumps `updatedAt` and creates the session. */
+export function upsertSession(
+  existing: MeetSession | undefined,
+  msg: { meetCode: string; title: string | null; startedAt: string; segments: MeetSegment[] },
+  nowIso: string,
+): MeetSession {
+  return {
+    meetCode: existing?.meetCode ?? msg.meetCode,
+    title: msg.title ? msg.title : (existing?.title ?? null),
+    startedAt: existing?.startedAt ?? msg.startedAt,
+    updatedAt: nowIso,
+    segments: mergeSegments(existing?.segments ?? [], msg.segments),
+  };
+}
+
+/** Which failed-meeting keys to delete so at most `max` stay (oldest `failedAt` go first). */
+export function failedToEvict(entries: { key: string; failedAt: string }[], max = MAX_MEET_FAILED): string[] {
+  const sorted = [...entries].sort((a, b) => (a.failedAt < b.failedAt ? -1 : a.failedAt > b.failedAt ? 1 : 0));
+  return sorted.slice(0, Math.max(0, sorted.length - max)).map((e) => e.key);
+}
+
+/**
+ * Who may send this message to the worker? "meet" = our content script on a Meet tab (meet:* only);
+ * "popup" = our own extension page (no tab); null = refuse.
+ */
+export function allowMessage(
+  msgType: unknown,
+  sender: { id?: string; tab?: { url?: string } },
+  runtimeId: string,
+): "meet" | "popup" | null {
+  if (sender.id !== runtimeId) return null;
+  if (typeof msgType === "string" && msgType.startsWith("meet:")) {
+    return sender.tab?.url?.startsWith("https://meet.google.com/") ? "meet" : null;
+  }
+  return sender.tab === undefined ? "popup" : null;
+}
+
 export interface Recent {
   title: string;
   at: string;

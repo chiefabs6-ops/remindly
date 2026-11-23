@@ -101,8 +101,8 @@ function attachObserver() {
 
 async function flush() {
   if (!session || !tracker) return;
+  // Empty segments still go out as a heartbeat so the background does not finalise a quiet call.
   const changed = tracker.changedSince(lastSent);
-  if (changed.length === 0) return;
   const res = await send<{ ok?: boolean }>({
     type: "meet:segments",
     key: session.key,
@@ -278,8 +278,14 @@ async function pollCall() {
     if (!offered) {
       offered = true;
       const cfg = await send<{ offer?: boolean; paired?: boolean }>({ type: "meet:config" });
-      if (!cfg?.paired) return; // not paired: show nothing
       const resumable = loadSession(meetCode) !== null;
+      if (!cfg) {
+        // Background unreachable: a reload-resumable session still resumes; otherwise retry next poll.
+        if (resumable) startNotes(meetCode);
+        else offered = false;
+        return;
+      }
+      if (!cfg.paired) return; // not paired: show nothing
       if (resumable) startNotes(meetCode);
       else if (cfg.offer && !dismissed) showOffer(meetCode);
     }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus } from "lucide-react";
 import type { Meeting, Note, NoteKind, Project } from "@tether/core";
@@ -58,7 +58,17 @@ function Editor({ note, projects, onDeleted }: { note: Note; projects: Project[]
   const navigate = useNavigate();
   const meeting = useMeetingForNote(note.kind === "meeting" ? note.id : null);
   const [f, setF] = useState({ title: note.title, bodyMd: note.bodyMd, kind: note.kind, projectId: note.projectId ?? "" });
-  useEffect(() => setF({ title: note.title, bodyMd: note.bodyMd, kind: note.kind, projectId: note.projectId ?? "" }), [note]);
+  // Follow outside changes (e.g. a meeting summary arriving) only while there are no unsaved edits.
+  const synced = useRef(note);
+  useEffect(() => {
+    const old = synced.current;
+    synced.current = note;
+    setF((cur) =>
+      cur.title === old.title && cur.bodyMd === old.bodyMd && cur.kind === old.kind && (cur.projectId || null) === old.projectId
+        ? { title: note.title, bodyMd: note.bodyMd, kind: note.kind, projectId: note.projectId ?? "" }
+        : cur,
+    );
+  }, [note]);
   const save = useAction(() => api.updateNote(note.id, { ...f, projectId: f.projectId || null, tags: note.tags, taskId: note.taskId }));
   const convert = useAction(() => api.convertNote(note.id));
   const remove = useAction(() => api.deleteNote(note.id));

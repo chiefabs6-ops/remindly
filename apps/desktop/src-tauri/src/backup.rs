@@ -320,6 +320,7 @@ pub fn export_json(db: &Db) -> AppResult<Value> {
             "note_tags",
             "code_projects",
             "suggestions",
+            "meetings",
             "reminders",
             "task_history",
             "settings",

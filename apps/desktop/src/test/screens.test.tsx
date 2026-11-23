@@ -326,6 +326,18 @@ describe("Meeting notes", () => {
     expect(within(bar).getByText(/2 lines/)).toBeInTheDocument();
   });
 
+  it("a summary arriving while typing keeps the unsaved text", async () => {
+    const user = userEvent.setup();
+    await openMeetingNote(user);
+    const body = screen.getByLabelText("Note");
+    await user.type(body, " my own line");
+    const [n] = await mockInvoke<{ id: string; title: string; bodyMd: string; kind: string }[]>("notes_list", { filter: { query: "Weekly sync" } });
+    await mockInvoke("note_update", { id: n.id, input: { title: n.title, bodyMd: "New summary from the worker", kind: n.kind, tags: [] } });
+    await queryClient.invalidateQueries();
+    await new Promise((r) => setTimeout(r, 50));
+    expect((screen.getByLabelText("Note") as HTMLTextAreaElement).value).toContain("my own line");
+  });
+
   it("Try again asks for a new summary", async () => {
     const user = userEvent.setup();
     const store = sampleStore();

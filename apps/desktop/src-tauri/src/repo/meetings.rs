@@ -20,8 +20,14 @@ use crate::{
 pub const MAX_SEGMENTS: usize = 5000;
 const MAX_SPEAKER: usize = 100;
 const MAX_SEGMENT_TEXT: usize = 4000;
-/// Shown in the note until the summary arrives; replaced in place so user edits elsewhere stay.
+/// Shown in the note until the summary arrives.
 pub const PLACEHOLDER: &str = "_Summary on the way…_";
+/// The summary lives between these markers, so a new summary replaces only that part and user
+/// edits elsewhere in the note stay.
+const SUMMARY_START: &str = "<!-- tether:summary -->";
+const SUMMARY_END: &str = "<!-- /tether:summary -->";
+/// Room kept in the note for the summary block (at most ~22 KB after cleaning).
+const SUMMARY_ROOM: usize = 30_000;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -150,6 +156,48 @@ fn hhmm(at: &str) -> String {
         .unwrap_or_default()
 }
 
+/// The transcript section, cut (on a character boundary) so the note stays under its size limit
+/// with room for the summary. The full transcript is always kept with the meeting.
+fn transcript_section(segments: &[Segment]) -> String {
+    let full = transcript_md(segments);
+    let budget = MAX_TEXT - SUMMARY_ROOM;
+    if full.len() <= budget {
+        return full;
+    }
+    let mut cut = budget - 200;
+    while !full.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!(
+        "{}\n\n_(The transcript is cut here to fit the note. The full text is kept with the meeting and used for the summary.)_\n",
+        &full[..cut]
+    )
+}
+
+fn summary_section(inner: &str) -> String {
+    format!("{SUMMARY_START}\n{}\n{SUMMARY_END}", inner.trim_end())
+}
+
+/// Replace the marked summary section, or put one at the top when the markers are gone.
+fn with_summary(body: &str, inner: &str) -> String {
+    if let Some(i) = body.find(SUMMARY_START)
+        && let Some(j) = body[i..].find(SUMMARY_END)
+    {
+        let end = i + j + SUMMARY_END.len();
+        return format!("{}{}{}", &body[..i], summary_section(inner), &body[end..]);
+    }
+    format!("{}\n\n{}", summary_section(inner), body)
+}
+
+/// Replace the transcript section (from its heading to the end), or append one.
+fn with_transcript(body: &str, segments: &[Segment]) -> String {
+    let head = match body.find("## Transcript") {
+        Some(i) => &body[..i],
+        None => body,
+    };
+    format!("{}\n\n{}", head.trim_end(), transcript_section(segments))
+}
+
 fn transcript_md(segments: &[Segment]) -> String {
     let mut md = String::from("## Transcript\n");
     for (speaker, at, text) in turns(segments) {
@@ -228,15 +276,16 @@ pub fn for_note(conn: &Connection, note_id: &str) -> AppResult<Option<Meeting>> 
     Ok(load(conn, "m.note_id = ?1", note_id)?.map(|(m, _)| m))
 }
 
-/// Save a meeting and its note. Idempotent on `dedupe_key`: a retried upload returns the first.
-/// `ai_on` decides whether the summary is queued ("pending") or not ("off").
+/// Save a meeting and its note. Idempotent on `dedupe_key`: a retried upload returns the first;
+/// an upload with new caption lines for a known key (a call that was sent early, then went on)
+/// is merged in. `ai_on` decides whether the summary is queued ("pending") or not ("off").
 pub fn create(conn: &Connection, input: &MeetingInput, ai_on: bool) -> AppResult<Meeting> {
     let key = input.dedupe_key.trim();
     if key.is_empty() || key.len() > 200 {
         return Err(AppError::invalid("dedupeKey must be 1-200 characters"));
     }
-    if let Some((m, _)) = load(conn, "m.dedupe_key = ?1", key)? {
-        return Ok(m);
+    if let Some((m, old)) = load(conn, "m.dedupe_key = ?1", key)? {
+        return merge(conn, m, old, input, ai_on);
     }
     let code = input.meet_code.trim();
     if !valid_meet_code(code) {
@@ -260,17 +309,11 @@ pub fn create(conn: &Connection, input: &MeetingInput, ai_on: bool) -> AppResult
             started.format("%e %b %H:%M").to_string().trim()
         ),
     };
-    let mut body = String::new();
-    if ai_on {
-        body.push_str(PLACEHOLDER);
-        body.push_str("\n\n");
-    }
-    body.push_str(&transcript_md(&segments));
-    if body.len() > MAX_TEXT {
-        // Keep the newest part out of the note rather than refuse; the raw transcript is kept.
-        body = body.chars().take(MAX_TEXT / 4).collect();
-        body.push_str("\n\n_(Transcript cut here; the full text is kept with the meeting.)_");
-    }
+    let body = format!(
+        "{}\n\n{}",
+        summary_section(if ai_on { PLACEHOLDER } else { "" }),
+        transcript_section(&segments)
+    );
     let note = notes::create(
         conn,
         &NoteInput {
@@ -302,6 +345,75 @@ pub fn create(conn: &Connection, input: &MeetingInput, ai_on: bool) -> AppResult
         ],
     )?;
     get(conn, &id)
+}
+
+/// Add caption lines that are not stored yet; rebuild the note's transcript and queue a new summary.
+fn merge(
+    conn: &Connection,
+    m: Meeting,
+    mut segments: Vec<Segment>,
+    input: &MeetingInput,
+    ai_on: bool,
+) -> AppResult<Meeting> {
+    // A merged upload must be valid too, but an empty one (a plain retry) changes nothing.
+    let incoming = match clean_segments(&input.segments) {
+        Ok(v) => v,
+        Err(_) => return Ok(m),
+    };
+    let known: std::collections::HashSet<(String, String, String)> = segments
+        .iter()
+        .map(|s| (s.speaker.clone(), s.text.clone(), s.at.clone()))
+        .collect();
+    let new: Vec<Segment> = incoming
+        .into_iter()
+        .filter(|s| !known.contains(&(s.speaker.clone(), s.text.clone(), s.at.clone())))
+        .collect();
+    if new.is_empty() {
+        return Ok(m);
+    }
+    segments.extend(new);
+    segments.sort_by(|a, b| a.at.cmp(&b.at));
+    if segments.len() > MAX_SEGMENTS {
+        return Err(AppError::invalid("the meeting has too many caption lines"));
+    }
+    let ended = if input.ended_at.trim() > m.ended_at.as_str() {
+        input.ended_at.trim().to_string()
+    } else {
+        m.ended_at.clone()
+    };
+    // A running summary sees "pending" when it finishes and leaves the note alone; the worker
+    // then summarises the whole meeting again.
+    let status = if ai_on { "pending" } else { "off" };
+    conn.execute(
+        "UPDATE meetings SET segments_json = ?2, ended_at = ?3, summary_status = ?4,
+            summary_error = NULL, updated_at = ?5 WHERE id = ?1",
+        params![
+            m.id,
+            serde_json::to_string(&segments).map_err(|e| AppError::invalid(e.to_string()))?,
+            ended,
+            status,
+            now_utc()
+        ],
+    )?;
+    if let Some(note_id) = &m.note_id
+        && let Ok(note) = notes::get(conn, note_id)
+    {
+        let body = with_transcript(&note.body_md, &segments);
+        notes::update(conn, note_id, &note_input(&note, body))?;
+    }
+    get(conn, &m.id)
+}
+
+fn note_input(note: &crate::model::Note, body_md: String) -> NoteInput {
+    NoteInput {
+        title: note.title.clone(),
+        body_md,
+        kind: Some(note.kind),
+        project_id: note.project_id.clone(),
+        task_id: note.task_id.clone(),
+        tags: note.tags.clone(),
+        source_url: note.source_url.clone(),
+    }
 }
 
 fn set_status(conn: &Connection, id: &str, status: &str, error: Option<&str>) -> AppResult<()> {
@@ -338,8 +450,14 @@ pub fn requeue_running(conn: &Connection) -> AppResult<usize> {
     )?)
 }
 
+/// Record a failed local summary, unless new captions re-queued the meeting meanwhile.
 pub fn fail(conn: &Connection, id: &str, message: &str) -> AppResult<()> {
-    set_status(conn, id, "failed", Some(&clip(message, 500)))
+    conn.execute(
+        "UPDATE meetings SET summary_status = 'failed', summary_error = ?2, updated_at = ?3
+         WHERE id = ?1 AND summary_status = 'running'",
+        params![id, clip(message, 500), now_utc()],
+    )?;
+    Ok(())
 }
 
 /// "Try again": queue the local summary (or report that the local AI is off).
@@ -352,9 +470,11 @@ pub fn resummarise(conn: &Connection, id: &str, ai_on: bool) -> AppResult<Meetin
     get(conn, id)
 }
 
-fn is_users(owner: &Option<String>) -> bool {
+/// The user's own item? Claude Code is asked for the user's items only, so a missing owner means
+/// the user; the local model must name the owner ("You").
+fn is_users(owner: &Option<String>, origin: Origin) -> bool {
     match owner.as_deref().map(str::trim) {
-        None | Some("") => true,
+        None | Some("") => origin != Origin::Ai,
         Some(o) => ["you", "me", "i"].contains(&o.to_lowercase().as_str()),
     }
 }
@@ -399,7 +519,7 @@ pub fn clean_summary(s: &MeetingSummary) -> MeetingSummary {
     }
 }
 
-fn summary_md(s: &MeetingSummary) -> String {
+fn summary_md(s: &MeetingSummary, origin: Origin) -> String {
     let mut md = format!("## Summary\n{}\n", s.summary.trim());
     if !s.decisions.is_empty() {
         md.push_str("\n## Decisions\n");
@@ -415,7 +535,7 @@ fn summary_md(s: &MeetingSummary) -> String {
                 .as_deref()
                 .map(|d| format!(" (due {d})"))
                 .unwrap_or_default();
-            if is_users(&a.owner) {
+            if is_users(&a.owner, origin) {
                 md.push_str(&format!("- [ ] {}{due}\n", a.title));
             } else {
                 md.push_str(&format!(
@@ -438,6 +558,11 @@ pub fn apply_summary(
     origin: Origin,
 ) -> AppResult<usize> {
     let m = get(conn, id)?;
+    // The local worker only writes while its claim stands: if new captions arrived (pending) or
+    // Claude Code already wrote a summary (done), its result is stale.
+    if origin == Origin::Ai && m.summary_status != "running" {
+        return Ok(0);
+    }
     let s = clean_summary(summary);
     if s.summary.is_empty() {
         return Err(AppError::invalid("summary is required"));
@@ -445,42 +570,11 @@ pub fn apply_summary(
     if let Some(note_id) = &m.note_id
         && let Ok(note) = notes::get(conn, note_id)
     {
-        {
-            let block = summary_md(&s);
-            let body = if note.body_md.contains(PLACEHOLDER) {
-                note.body_md.replacen(PLACEHOLDER, block.trim_end(), 1)
-            } else if let Some(i) = note.body_md.find("## Summary\n") {
-                // A new summary replaces the old one, up to the transcript.
-                let end = note.body_md[i..]
-                    .find("## Transcript")
-                    .map(|j| i + j)
-                    .unwrap_or(note.body_md.len());
-                format!(
-                    "{}{}\n\n{}",
-                    &note.body_md[..i],
-                    block.trim_end(),
-                    &note.body_md[end..]
-                )
-            } else {
-                format!("{}\n\n{}", block.trim_end(), note.body_md)
-            };
-            notes::update(
-                conn,
-                note_id,
-                &NoteInput {
-                    title: note.title.clone(),
-                    body_md: body,
-                    kind: Some(note.kind),
-                    project_id: note.project_id.clone(),
-                    task_id: note.task_id.clone(),
-                    tags: note.tags.clone(),
-                    source_url: note.source_url.clone(),
-                },
-            )?;
-        }
+        let body = with_summary(&note.body_md, &summary_md(&s, origin));
+        notes::update(conn, note_id, &note_input(&note, body))?;
     }
     let mut created = 0;
-    for a in s.action_items.iter().filter(|a| is_users(&a.owner)) {
+    for a in s.action_items.iter().filter(|a| is_users(&a.owner, origin)) {
         let key: String = format!("meeting:{id}:{}", a.title.to_lowercase())
             .chars()
             .take(200)
@@ -562,7 +656,7 @@ mod tests {
             .unwrap();
         assert_eq!(note.title, "Weekly sync");
         assert_eq!(note.kind, NoteKind::Meeting);
-        assert!(note.body_md.starts_with(PLACEHOLDER));
+        assert!(note.body_md.contains(PLACEHOLDER));
         assert!(note.body_md.contains("**Sarah**"));
         assert!(note.body_md.contains("Can you send the report by Friday?"));
         let off = db.write(|c| create(c, &input("meet:k2"), false)).unwrap();
@@ -635,11 +729,129 @@ mod tests {
     }
 
     #[test]
+    fn later_captions_with_the_same_key_are_merged() {
+        let db = db();
+        let m = db.write(|c| create(c, &input("meet:k5"), true)).unwrap();
+        let mut more = input("meet:k5");
+        more.ended_at = "2026-11-23T11:00:00Z".into();
+        more.segments = vec![seg("You", "One more thing.", "2026-11-23T10:40:00Z")];
+        let merged = db.write(|c| create(c, &more, true)).unwrap();
+        assert_eq!(merged.id, m.id);
+        assert_eq!(merged.segment_count, 4);
+        assert_eq!(merged.ended_at, "2026-11-23T11:00:00Z");
+        let note = db
+            .read(|c| notes::get(c, m.note_id.as_deref().unwrap()))
+            .unwrap();
+        assert!(note.body_md.contains("One more thing."));
+        assert_eq!(note.body_md.matches("## Transcript").count(), 1);
+        // The same upload again changes nothing.
+        let again = db.write(|c| create(c, &more, true)).unwrap();
+        assert_eq!(again.segment_count, 4);
+    }
+
+    #[test]
+    fn stale_local_summary_is_ignored_and_user_edits_stay() {
+        let db = db();
+        let m = db.write(|c| create(c, &input("meet:k6"), true)).unwrap();
+        let note_id = m.note_id.clone().unwrap();
+        // The user writes their own line above the summary.
+        db.write(|c| {
+            let n = notes::get(c, &note_id)?;
+            let body = format!("My own notes.\n\n{}", n.body_md);
+            notes::update(c, &note_id, &note_input(&n, body))
+        })
+        .unwrap();
+        let s = MeetingSummary {
+            summary: "First.".into(),
+            ..Default::default()
+        };
+        // Not claimed by the worker: a local result is ignored.
+        assert_eq!(
+            db.write(|c| apply_summary(c, &m.id, &s, Origin::Ai))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.read(|c| get(c, &m.id)).unwrap().summary_status,
+            "pending"
+        );
+        db.write(|c| apply_summary(c, &m.id, &s, Origin::Claude))
+            .unwrap();
+        let s2 = MeetingSummary {
+            summary: "Second.".into(),
+            ..Default::default()
+        };
+        db.write(|c| apply_summary(c, &m.id, &s2, Origin::Claude))
+            .unwrap();
+        let body = db.read(|c| notes::get(c, &note_id)).unwrap().body_md;
+        assert!(body.starts_with("My own notes."));
+        assert!(body.contains("Second.") && !body.contains("First."));
+        assert!(body.contains("## Transcript"));
+    }
+
+    #[test]
+    fn local_items_without_owner_are_not_suggested() {
+        let db = db();
+        let m = db.write(|c| create(c, &input("meet:k7"), true)).unwrap();
+        db.write(|c| claim_next(c)).unwrap();
+        let s = MeetingSummary {
+            summary: "x".into(),
+            action_items: vec![ActionItem {
+                title: "Someone's job".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            db.write(|c| apply_summary(c, &m.id, &s, Origin::Ai))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn very_long_meetings_leave_room_for_the_summary() {
+        let db = db();
+        let mut i = input("meet:k8");
+        i.segments = (0..2000)
+            .map(|n| {
+                seg(
+                    if n % 2 == 0 { "You" } else { "Sarah" },
+                    &"word ".repeat(40),
+                    &format!("2026-11-23T10:{:02}:{:02}Z", (n / 60) % 60, n % 60),
+                )
+            })
+            .collect();
+        let m = db.write(|c| create(c, &i, true)).unwrap();
+        db.write(|c| claim_next(c)).unwrap();
+        let big = MeetingSummary {
+            summary: "s".repeat(4000),
+            decisions: vec!["d".repeat(500); 20],
+            action_items: (0..30)
+                .map(|n| ActionItem {
+                    title: format!("{n} {}", "t".repeat(190)),
+                    owner: Some("You".into()),
+                    ..Default::default()
+                })
+                .collect(),
+        };
+        db.write(|c| apply_summary(c, &m.id, &big, Origin::Ai))
+            .unwrap();
+        let body = db
+            .read(|c| notes::get(c, m.note_id.as_deref().unwrap()))
+            .unwrap()
+            .body_md;
+        assert!(body.len() <= MAX_TEXT);
+        assert!(body.contains("transcript is cut here"));
+    }
+
+    #[test]
     fn requeue_and_resummarise() {
         let db = db();
         let m = db.write(|c| create(c, &input("meet:k4"), true)).unwrap();
         db.write(|c| claim_next(c)).unwrap();
         assert_eq!(db.write(|c| requeue_running(c)).unwrap(), 1);
+        db.write(|c| claim_next(c)).unwrap();
         db.write(|c| fail(c, &m.id, "Ollama is not running"))
             .unwrap();
         let f = db.read(|c| get(c, &m.id)).unwrap();

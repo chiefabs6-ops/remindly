@@ -2,11 +2,14 @@
 
 import { captureKey, findDate, suggestFromSelection } from "@tether/core";
 import {
-  MAX_MEET_SEGMENTS,
   TetherClient,
   chromeStorage,
-  mergeSegments,
+  allowMessage,
+  failedToEvict,
+  isStaleSession,
+  upsertSession,
   type MeetMsg,
+  type MeetSession,
   type MeetSegment,
   type MeetingBody,
   type SuggestionBody,
@@ -144,7 +147,8 @@ async function handle(msg: Msg) {
         client.needsRepair(),
       ]);
       const pending = online && token ? await client.pendingCount() : null;
-      return { online, paired: !!token, repair, queued: queue.length, recent, pending };
+      const failedMeetings = Object.keys(await chrome.storage.local.get(null)).filter((k) => k.startsWith(FAILED_PREFIX)).length;
+      return { online, paired: !!token, repair, queued: queue.length, recent, pending, failedMeetings };
     }
     case "pair":
       return client.pair(msg.code);
@@ -168,16 +172,8 @@ async function handle(msg: Msg) {
 // ---- Google Meet sessions ----
 // The content script on meet.google.com cannot read chrome.storage.local, so every session lives here.
 
-const STALE_MS = 15 * 60 * 1000;
+const FAILED_PREFIX = "meetFailed:";
 const MEET_PREFIX = "meet:";
-
-interface MeetSession {
-  meetCode: string;
-  title: string | null;
-  startedAt: string;
-  updatedAt: string;
-  segments: MeetSegment[];
-}
 
 /** Serialises session read-modify-write (segment messages can arrive at the same time). */
 let meetLock: Promise<unknown> = Promise.resolve();
@@ -212,23 +208,31 @@ function cleanSegments(raw: unknown): MeetSegment[] {
 function addSegments(msg: Extract<MeetMsg, { type: "meet:segments" }>): Promise<{ ok: true }> {
   return meetExclusive(async () => {
     const existing = await getSession(msg.key);
-    const session: MeetSession = {
-      meetCode: existing?.meetCode ?? str(msg.meetCode, 50),
-      title: msg.title ? str(msg.title, 200) : (existing?.title ?? null),
-      startedAt: existing?.startedAt ?? str(msg.startedAt, 40),
-      updatedAt: new Date().toISOString(),
-      segments: mergeSegments(existing?.segments ?? [], cleanSegments(msg.segments), MAX_MEET_SEGMENTS),
-    };
+    const session = upsertSession(
+      existing,
+      {
+        meetCode: str(msg.meetCode, 50),
+        title: msg.title ? str(msg.title, 200) : null,
+        startedAt: str(msg.startedAt, 40),
+        segments: cleanSegments(msg.segments),
+      },
+      new Date().toISOString(),
+    );
     await chrome.storage.local.set({ [MEET_PREFIX + msg.key]: session });
     return { ok: true as const };
   });
 }
 
-/** Send the meeting (or queue it) and drop the session. Skips empty sessions. */
-function finaliseMeeting(key: string): Promise<"sent" | "queued" | { error: string }> {
+/**
+ * Send the meeting (or queue it) and drop the session, all under the lock so a late segment message
+ * cannot be lost. With `onlyIfStale` the quiet time is re-checked inside the lock. A meeting the app
+ * rejects is kept under `meetFailed:<key>` (max 5) instead of being deleted.
+ */
+function finaliseMeeting(key: string, onlyIfStale = false): Promise<"sent" | "queued" | { error: string } | undefined> {
   return meetExclusive(async () => {
     const s = await getSession(key);
     if (!s) return { error: "No meeting in progress." };
+    if (onlyIfStale && !isStaleSession(s.updatedAt, Date.now())) return undefined;
     let result: "sent" | "queued" | { error: string } = { error: "No captions were captured." };
     if (s.segments.length) {
       const body: MeetingBody = {
@@ -240,6 +244,15 @@ function finaliseMeeting(key: string): Promise<"sent" | "queued" | { error: stri
         segments: s.segments.map(({ speaker, text, at }) => ({ speaker, text, at })),
       };
       result = await client.captureMeeting(body);
+      if (typeof result === "object") {
+        await chrome.storage.local.set({ [FAILED_PREFIX + key]: { failedAt: new Date().toISOString(), error: result.error, session: s } });
+        const all = await chrome.storage.local.get(null);
+        const entries = Object.entries(all)
+          .filter(([k]) => k.startsWith(FAILED_PREFIX))
+          .map(([k, v]) => ({ key: k, failedAt: String((v as { failedAt?: string }).failedAt ?? "") }));
+        const drop = failedToEvict(entries);
+        if (drop.length) await chrome.storage.local.remove(drop);
+      }
     }
     await chrome.storage.local.remove(MEET_PREFIX + key);
     return result;
@@ -249,11 +262,8 @@ function finaliseMeeting(key: string): Promise<"sent" | "queued" | { error: stri
 /** Calls that ended without a "leave" message (tab closed, crash): finish them once quiet for 15 minutes. */
 async function finaliseStaleMeetings() {
   const all = await chrome.storage.local.get(null);
-  const now = Date.now();
-  for (const [k, v] of Object.entries(all)) {
-    if (!k.startsWith(MEET_PREFIX)) continue;
-    const updated = Date.parse((v as MeetSession | undefined)?.updatedAt ?? "");
-    if (Number.isNaN(updated) || now - updated > STALE_MS) await finaliseMeeting(k.slice(MEET_PREFIX.length));
+  for (const k of Object.keys(all)) {
+    if (k.startsWith(MEET_PREFIX)) await finaliseMeeting(k.slice(MEET_PREFIX.length), true);
   }
 }
 
@@ -274,18 +284,11 @@ async function handleMeet(msg: MeetMsg) {
 
 chrome.runtime.onMessage.addListener((msg: Msg | MeetMsg, sender, reply) => {
   // Only our own extension pages and our Meet content script may drive the worker.
-  if (sender.id !== chrome.runtime.id) return false;
-  const type = (msg as { type?: unknown } | null)?.type;
-  let run: Promise<unknown>;
-  if (typeof type === "string" && type.startsWith(MEET_PREFIX)) {
-    // Content script: only from a Meet tab, and only the meet:* messages.
-    if (!sender.tab?.url?.startsWith("https://meet.google.com/")) return false;
-    run = handleMeet(msg as MeetMsg);
-  } else {
-    // Popup: no tab. A content script must not be able to pair, unpair, flush or read status.
-    if (sender.tab !== undefined) return false;
-    run = handle(msg as Msg);
-  }
+  const who = allowMessage((msg as { type?: unknown } | null)?.type, sender, chrome.runtime.id);
+  if (!who) return false;
+  // "meet": our content script on a Meet tab (meet:* only). "popup": no tab, so a content script
+  // cannot pair, unpair, flush or read status.
+  const run: Promise<unknown> = who === "meet" ? handleMeet(msg as MeetMsg) : handle(msg as Msg);
   run
     .then(async (r) => {
       await updateBadge();

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { TetherClient, mergeSegments, type MeetingBody, type Storage, type SuggestionBody } from "./client";
+import { TetherClient, allowMessage, failedToEvict, isStaleSession, mergeSegments, upsertSession, type MeetingBody, type Storage, type SuggestionBody } from "./client";
 
 function memory(): Storage & { data: Record<string, unknown> } {
   const data: Record<string, unknown> = {};
@@ -289,5 +289,45 @@ describe("default fetch", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+});
+
+describe("meet session helpers", () => {
+  const seg = (id: string, at: string) => ({ id, speaker: "You", text: id, at });
+  const base = { meetCode: "abc-defg-hij", title: null, startedAt: "s" };
+
+  it("isStaleSession: older than 15 min or unreadable", () => {
+    const now = Date.parse("2026-11-23T10:30:00Z");
+    expect(isStaleSession("2026-11-23T10:20:00Z", now)).toBe(false);
+    expect(isStaleSession("2026-11-23T10:14:00Z", now)).toBe(true);
+    expect(isStaleSession(undefined, now)).toBe(true);
+  });
+
+  it("upsertSession: heartbeat creates the session and bumps updatedAt", () => {
+    const a = upsertSession(undefined, { ...base, segments: [] }, "t1");
+    expect(a).toMatchObject({ meetCode: "abc-defg-hij", updatedAt: "t1", segments: [] });
+    const b = upsertSession({ ...a, segments: [seg("x", "1")] }, { ...base, title: "Sync", segments: [] }, "t2");
+    expect(b).toMatchObject({ updatedAt: "t2", title: "Sync", startedAt: "s" });
+    expect(b.segments).toHaveLength(1);
+    expect(upsertSession(b, { ...base, segments: [seg("y", "2")] }, "t3").title).toBe("Sync");
+  });
+
+  it("failedToEvict keeps the newest 5", () => {
+    const e = [3, 1, 2, 7, 5, 4, 6].map((n) => ({ key: `k${n}`, failedAt: String(n) }));
+    expect(failedToEvict(e)).toEqual(["k1", "k2"]);
+    expect(failedToEvict(e.slice(0, 3))).toEqual([]);
+  });
+
+  it("allowMessage gates by sender", () => {
+    const meet = { id: "me", tab: { url: "https://meet.google.com/abc-defg-hij" } };
+    const other = { id: "me", tab: { url: "https://evil.example/" } };
+    expect(allowMessage("meet:segments", meet, "me")).toBe("meet");
+    expect(allowMessage("meet:segments", other, "me")).toBeNull();
+    expect(allowMessage("meet:segments", { id: "me" }, "me")).toBeNull();
+    expect(allowMessage("pair", { id: "me" }, "me")).toBe("popup");
+    expect(allowMessage("meetOffer:set", { id: "me" }, "me")).toBe("popup");
+    expect(allowMessage("pair", meet, "me")).toBeNull();
+    expect(allowMessage("flush", other, "me")).toBeNull();
+    expect(allowMessage("meet:end", { id: "x", tab: meet.tab }, "me")).toBeNull();
   });
 });
