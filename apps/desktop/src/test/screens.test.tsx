@@ -125,7 +125,7 @@ describe("Review", () => {
 describe("Settings backups", () => {
   it("backs up on request and lists the copy", async () => {
     const user = userEvent.setup();
-    window.location.hash = "#/settings";
+    window.location.hash = "#/settings?section=backups";
     render(<App />);
     expect(await screen.findByText(/Database check: healthy/)).toBeInTheDocument();
     expect(screen.getByText("No backups yet.")).toBeInTheDocument();

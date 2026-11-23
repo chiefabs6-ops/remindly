@@ -24,10 +24,12 @@ interface Props {
   hideProject?: boolean;
   /** Narrow cards: title and due only. */
   compact?: boolean;
+  /** Wide table layout at lg and up: project, due, priority columns. Below lg it looks the same as before. */
+  columns?: boolean;
 }
 
 /** One task: checkbox, title, then meta in fixed right-hand slots so rows line up as columns. */
-export function TaskRow({ task, project, selected, onOpen, hideProject, compact }: Props) {
+export function TaskRow({ task, project, selected, onOpen, hideProject, compact, columns }: Props) {
   const toggle = useAction((done: boolean) =>
     api.setStatus(task.id, done ? "completed" : "not_started", done),
   );
@@ -66,15 +68,20 @@ export function TaskRow({ task, project, selected, onOpen, hideProject, compact 
         {task.status === "in_progress" && <span className="pill">In progress</span>}
       </button>
       {!hideProject && !compact && (
-        <span className="hidden w-44 flex-none justify-end md:flex">
+        <span className={`hidden flex-none justify-end md:flex ${columns ? "w-44 lg:order-1 lg:w-52 lg:justify-start" : "w-44"}`}>
           {project && <span className="chip" style={toneStyle(project.color)} title={project.name}>{project.name}</span>}
         </span>
       )}
-      <span className={`w-14 flex-none text-right text-xs text-muted ${compact ? "hidden" : "max-sm:hidden"}`}>
+      <span className={`w-14 flex-none text-right text-xs text-muted ${compact ? "hidden" : "max-sm:hidden"} ${columns ? "lg:hidden" : ""}`}>
         {task.priority > 0 ? PRIORITY_MARK[task.priority] : ""}
       </span>
+      {columns && !compact && (
+        <span className="hidden w-20 flex-none lg:order-3 lg:flex">
+          {task.priority > 0 && <span className="pill">{PRIORITY_MARK[task.priority]}</span>}
+        </span>
+      )}
       <span
-        className={`num flex-none text-right text-xs ${compact ? "w-auto" : "w-28"} ${
+        className={`num flex-none text-right text-xs ${compact ? "w-auto" : "w-28"} ${columns ? "lg:order-2 lg:text-left" : ""} ${
           tone === "overdue" ? "font-medium text-negative" : tone === "today" ? "font-medium text-today" : "text-muted"
         }`}
       >
@@ -91,6 +98,7 @@ export function TaskList({
   onOpen,
   hideProject,
   compact,
+  columns,
   empty,
 }: {
   tasks: Task[];
@@ -99,6 +107,7 @@ export function TaskList({
   onOpen?: (id: string) => void;
   hideProject?: boolean;
   compact?: boolean;
+  columns?: boolean;
   empty: string;
 }) {
   if (tasks.length === 0) {
@@ -116,6 +125,7 @@ export function TaskList({
           onOpen={onOpen}
           hideProject={hideProject}
           compact={compact}
+          columns={columns}
         />
       ))}
     </div>

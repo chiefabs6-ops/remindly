@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ArrowLeft, Bot, Check, Copy, ExternalLink, Globe, Pencil, RotateCcw, StickyNote, Trash2 } from "lucide-react";
-import { PRIORITY_LABEL, STATUS_LABEL, addDays, type HistoryEntry, type Priority, type TaskDetail } from "@tether/core";
+import { PRIORITY_LABEL, STATUS_LABEL, TASK_STATUSES, addDays, type HistoryEntry, type Priority, type TaskDetail, type TaskInput, type TaskStatus } from "@tether/core";
 import { TaskPanel } from "../components/TaskPanel";
 import { TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
-import { toneStyle } from "../lib/colors";
-import { ago, dueLabel, dueTone, hostOf, longDate, todayIso } from "../lib/format";
+import { toneDot } from "../lib/colors";
+import { ago, dueTone, hostOf, todayIso } from "../lib/format";
 import { useAction, useAiEnabled, useProjects, useTask } from "../lib/queries";
 
 /** Tiny Markdown for notes and Claude context: paragraphs, "- " lists and **bold** only. */
@@ -69,6 +69,28 @@ function historyLine(h: HistoryEntry): string {
   }
 }
 
+/** Every field of the task, so a one-field change can be saved with updateTask. */
+function asInput(t: TaskDetail): TaskInput {
+  return {
+    title: t.title, description: t.description, notes: t.notes, status: t.status, priority: t.priority,
+    dueDate: t.dueDate, dueTime: t.dueTime, scheduledDate: t.scheduledDate, projectId: t.projectId, tags: t.tags,
+  };
+}
+
+const same = (a: string | null, b: string | null) => (a ?? "").replace(/\s+/g, " ").trim() === (b ?? "").replace(/\s+/g, " ").trim();
+
+function Prop({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
+  return (
+    <div className="grid min-h-9 grid-cols-[92px_minmax(0,1fr)] items-center gap-2 text-[13px]">
+      {htmlFor ? <label htmlFor={htmlFor} className="text-muted">{label}</label> : <span className="text-muted">{label}</span>}
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+/** Quiet inline control: looks like text until hovered or focused. */
+const QUIET = "h-8 w-full min-w-0 rounded-[6px] border border-transparent bg-transparent px-2 text-[13px] hover:bg-active focus:border-line focus:bg-raised focus:outline-none";
+
 function Body({ t }: { t: TaskDetail }) {
   const navigate = useNavigate();
   const projects = useProjects();
@@ -79,7 +101,6 @@ function Body({ t }: { t: TaskDetail }) {
   const done = t.status === "completed";
   const today = todayIso();
   const toggle = useAction(() => api.setStatus(t.id, done ? "not_started" : "completed", !done));
-  const tomorrow = useAction(() => api.reschedule(t.id, addDays(today, 1), t.dueTime));
   const duplicate = useAction(() => api.duplicate(t.id));
   // Leave the page before the data refresh, so the deleted task is never shown as "not found".
   const remove = useAction(async () => {
@@ -97,28 +118,47 @@ function Body({ t }: { t: TaskDetail }) {
     }
   });
   const tone = dueTone(t);
-  const err = toggle.error ?? tomorrow.error ?? duplicate.error ?? remove.error ?? addSub.error;
+  const patch = useAction((p: Partial<TaskInput>) => api.updateTask(t.id, { ...asInput(t), ...p }));
+  const setStatus = useAction((s: TaskStatus) => api.setStatus(t.id, s, s === "completed"));
+  const reschedule = useAction((d: string | null) => api.reschedule(t.id, d, d ? t.dueTime : null));
+  const [tagText, setTagText] = useState(t.tags.join(", "));
+  const [remindAt, setRemindAt] = useState("");
+  const remind = useAction((local: string) => api.remindAt(t.id, new Date(local).toISOString()));
+  const saveTags = () => {
+    const tags = tagText.split(",").map((x) => x.trim().replace(/^#/, "")).filter(Boolean);
+    if (tags.join(",") !== t.tags.join(",")) patch.mutate({ tags });
+  };
+  const err = toggle.error ?? duplicate.error ?? remove.error ?? addSub.error ?? patch.error ?? setStatus.error ?? reschedule.error ?? remind.error;
   const location = useLocation();
   // Opened directly (e.g. from a notification): no in-app history to go back to.
   const back = () => (location.key !== "default" ? navigate(-1) : navigate("/", { replace: true }));
 
   if (editing) {
     return (
-      <div className="mx-auto max-w-[760px] py-4">
+      <div className="max-w-[900px] px-6 py-4 lg:px-10">
         <TaskPanel id={t.id} projects={ps} onClose={() => setEditing(false)} onDeleted={back} onOpen={(id) => navigate(`/task/${id}`)} />
       </div>
     );
   }
 
+  const showDescription = t.description && !same(t.description, t.sourceSelection);
+  const ps2 = ps.filter((p) => !p.archivedAt || p.id === t.projectId);
+
   return (
-    <article className="mx-auto max-w-[760px] px-6 pt-5 pb-12" aria-labelledby="task-title">
+    <div className="flex min-h-full flex-col overflow-x-clip lg:flex-row">
+    <article className="min-w-0 flex-1 px-6 pt-5 pb-12 lg:px-10" aria-labelledby="task-title">
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <button className="btn btn-ghost -ml-2 h-8" onClick={back}><ArrowLeft size={15} /> Back</button>
+        {project && (
+          <Link to={`/projects/${project.id}`} className="flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+            <span className="text-faint">/</span>
+            <span className="h-2 w-2 rounded-[2px]" style={{ background: toneDot(project.color) }} />{project.name}
+          </Link>
+        )}
         <div className="ml-auto flex flex-wrap gap-2">
           <button className="btn h-8" onClick={() => setEditing(true)}><Pencil size={14} /> Edit</button>
-          {!done && <button className="btn h-8" disabled={tomorrow.isPending} onClick={() => tomorrow.mutate(undefined)}>Tomorrow</button>}
           <button className="btn btn-primary h-8" disabled={toggle.isPending} onClick={() => toggle.mutate(undefined)}>
-            {done ? <><RotateCcw size={14} /> Reopen</> : <><Check size={14} /> Done</>}
+            {done ? <><RotateCcw size={14} /> Reopen</> : <><Check size={14} /> Mark done</>}
           </button>
           <button className="btn btn-ghost h-8 px-2" aria-label="Duplicate task" title="Duplicate"
             onClick={() => duplicate.mutate(undefined, { onSuccess: (c) => navigate(`/task/${c.id}`) })}><Copy size={15} /></button>
@@ -129,32 +169,21 @@ function Body({ t }: { t: TaskDetail }) {
         </div>
       </div>
 
+      <div className="max-w-[900px]">
       {t.parentId && (
         <p className="mb-2 text-[13px] text-muted">Subtask of <Link className="underline" to={`/task/${t.parentId}`}>the parent task</Link></p>
       )}
       <h1 id="task-title" className={`text-2xl leading-8 font-semibold tracking-[-0.01em] ${done ? "text-muted line-through" : ""}`}>{t.title}</h1>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
-        <span className={`pill ${done ? "" : t.status === "in_progress" ? "pill-today" : ""}`}>{STATUS_LABEL[t.status]}</span>
-        {t.dueDate ? (
-          <span className={`pill ${tone === "overdue" ? "pill-negative" : tone === "today" ? "pill-today" : ""}`}>
-            Due {dueLabel(t)}{tone === "plain" ? ` · ${longDate(t.dueDate)}` : ""}
-          </span>
-        ) : <span className="text-muted">No due date</span>}
-        {t.scheduledDate && <span className="pill">Do on {dueLabel({ dueDate: t.scheduledDate, dueTime: null })}</span>}
-        {project && <span className="chip" style={toneStyle(project.color)}>{project.name}</span>}
-        {t.priority > 0 && <span className="pill">{PRIORITY_LABEL[t.priority as Priority]} priority</span>}
-        {t.tags.map((g) => <span key={g} className="text-muted">#{g}</span>)}
-      </div>
+      {showDescription ? <p className="mt-3 text-[15px] leading-6 whitespace-pre-wrap">{t.description}</p>
+        : !t.sourceSelection && <p className="mt-3 text-muted"><button className="underline" onClick={() => setEditing(true)}>Add a description</button></p>}
 
-      {t.description && <p className="mt-5 text-[15px] leading-6 whitespace-pre-wrap">{t.description}</p>}
-
-      {(t.source !== "manual" || t.sourceSelection || t.sourceUrl) && (
-        <section className="mt-6 rounded-[8px] bg-raised p-4" aria-label="Where it came from">
+      {(t.sourceSelection || t.sourceUrl) && (
+        <section className="mt-6 rounded-[10px] bg-raised p-4" aria-label="Where it came from">
           <p className="mb-2 flex items-center gap-1.5 text-[13px] text-muted">
             {SOURCE[t.source].icon}{SOURCE[t.source].label} · {ago(t.createdAt)}
           </p>
-          {t.sourceSelection && <blockquote className="mb-2 border-l-2 border-today pl-3 text-[15px] leading-6">“{t.sourceSelection}”</blockquote>}
+          {t.sourceSelection && <blockquote className="mb-2 border-l-2 border-today pl-3 text-[15px] leading-6 whitespace-pre-wrap">“{t.sourceSelection}”</blockquote>}
           {t.sourceUrl && (
             <a href={t.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[13px] underline">
               {t.sourceTitle || hostOf(t.sourceUrl)} <span className="text-muted">· {hostOf(t.sourceUrl)}</span> <ExternalLink size={12} />
@@ -206,21 +235,88 @@ function Body({ t }: { t: TaskDetail }) {
         )}
       </section>
 
-      <section className="mt-8" aria-labelledby="hist-h">
-        <h2 id="hist-h" className="mb-2 font-semibold">History</h2>
-        <ol className="space-y-1.5 text-[13px]">
-          {t.history.slice(0, 12).map((h) => (
-            <li key={h.id} className="flex gap-3">
-              <span className="num w-28 flex-none text-muted">{ago(h.at)}</span>
-              <span>{historyLine(h)}</span>
-            </li>
-          ))}
-          {t.history.length === 0 && <li className="text-muted">Created {ago(t.createdAt)}.</li>}
-        </ol>
-      </section>
-
       {err && <p className="mt-4 text-negative">{errorMessage(err)}</p>}
+      </div>
     </article>
+
+    <aside className="min-w-0 flex-none border-line px-6 py-5 max-lg:border-t lg:w-[320px] lg:border-l lg:px-5" aria-label="Properties">
+      <h2 className="mb-2 text-xs font-medium text-muted">Properties</h2>
+      <Prop label="Status" htmlFor="p-status">
+        <select id="p-status" className={QUIET} value={t.status} disabled={setStatus.isPending}
+          onChange={(e) => setStatus.mutate(e.target.value as TaskStatus)}>
+          {TASK_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+        </select>
+      </Prop>
+      <Prop label="Due" htmlFor="p-due">
+        <input id="p-due" type="date" className={`${QUIET} ${tone === "overdue" ? "text-negative" : tone === "today" ? "text-today" : ""}`}
+          value={t.dueDate ?? ""} onChange={(e) => reschedule.mutate(e.target.value || null)} />
+      </Prop>
+      {t.dueDate && (
+        <Prop label="Due time" htmlFor="p-time">
+          <input id="p-time" type="time" className={QUIET} value={t.dueTime ?? ""}
+            onChange={(e) => patch.mutate({ dueTime: e.target.value || null })} />
+        </Prop>
+      )}
+      <Prop label="Do on" htmlFor="p-do">
+        <input id="p-do" type="date" className={QUIET} value={t.scheduledDate ?? ""}
+          onChange={(e) => patch.mutate({ scheduledDate: e.target.value || null })} />
+      </Prop>
+      <Prop label="Project" htmlFor="p-project">
+        <select id="p-project" className={QUIET} value={t.projectId ?? ""}
+          onChange={(e) => patch.mutate({ projectId: e.target.value || null })}>
+          <option value="">No project</option>
+          {ps2.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </Prop>
+      <Prop label="Priority" htmlFor="p-priority">
+        <select id="p-priority" className={QUIET} value={t.priority}
+          onChange={(e) => patch.mutate({ priority: Number(e.target.value) as Priority })}>
+          {([0, 1, 2, 3] as Priority[]).map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
+        </select>
+      </Prop>
+      <Prop label="Tags" htmlFor="p-tags">
+        <input id="p-tags" className={QUIET} placeholder="Add tags" value={tagText} onChange={(e) => setTagText(e.target.value)}
+          onBlur={saveTags} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveTags(); } }} />
+      </Prop>
+      {!done && (
+        <form className="contents" onSubmit={(e) => { e.preventDefault(); if (remindAt) remind.mutate(remindAt, { onSuccess: () => setRemindAt("") }); }}>
+          <Prop label="Remind me" htmlFor="p-remind">
+            <div className="flex gap-1">
+              <input id="p-remind" type="datetime-local" className={QUIET} value={remindAt} onChange={(e) => setRemindAt(e.target.value)} />
+              {remindAt && <button type="submit" className="btn h-8 flex-none px-2" disabled={remind.isPending}>Set</button>}
+            </div>
+          </Prop>
+          {remind.isSuccess && <p className="text-[13px] text-muted">Reminder set.</p>}
+        </form>
+      )}
+      {!done && (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button className="btn h-8 justify-center" disabled={reschedule.isPending} onClick={() => reschedule.mutate(addDays(today, 1))}>Tomorrow</button>
+          <button className="btn h-8 justify-center" disabled={reschedule.isPending} onClick={() => reschedule.mutate(addDays(today, 7))}>Next week</button>
+        </div>
+      )}
+
+      <div className="my-4 h-px bg-line" />
+      <h2 className="mb-2 text-xs font-medium text-muted">Source</h2>
+      <p className="text-[13px] leading-5">
+        {t.sourceUrl ? <a className="underline" href={t.sourceUrl} target="_blank" rel="noreferrer">{hostOf(t.sourceUrl)}</a>
+          : t.sourceSelection ? null : SOURCE[t.source].label}
+        <br /><span className="text-muted">Created {ago(t.createdAt)} · updated {ago(t.updatedAt)}</span>
+      </p>
+
+      <div className="my-4 h-px bg-line" />
+      <h2 id="hist-h" className="mb-2 text-xs font-medium text-muted">History</h2>
+            <ol className="space-y-1.5 text-[13px]">
+              {t.history.slice(0, 12).map((h) => (
+                <li key={h.id} className="flex gap-3">
+                  <span className="num w-20 flex-none text-muted">{ago(h.at)}</span>
+                  <span>{historyLine(h)}</span>
+                </li>
+              ))}
+              {t.history.length === 0 && <li className="text-muted">Created {ago(t.createdAt)}.</li>}
+            </ol>
+    </aside>
+    </div>
   );
 }
 
@@ -229,13 +325,13 @@ export function TaskPage() {
   const q = useTask(id);
   if (q.isError) {
     return (
-      <div className="mx-auto max-w-[760px] px-6 py-8">
+      <div className="px-6 py-8 lg:px-10">
         <h1 className="text-[22px] font-semibold">Task not found</h1>
         <p className="mt-1 text-muted">It may have been deleted. {errorMessage(q.error)}</p>
         <Link to="/" className="btn mt-4">Back to Today</Link>
       </div>
     );
   }
-  if (!q.data) return <div className="mx-auto max-w-[760px] px-6 py-8" aria-busy="true"><div className="h-8 w-2/3 rounded bg-active" /></div>;
+  if (!q.data) return <div className="px-6 py-8 lg:px-10" aria-busy="true"><div className="h-8 w-2/3 rounded bg-active" /></div>;
   return <Body key={q.data.id} t={q.data} />;
 }

@@ -95,11 +95,20 @@ export function TasksScreen() {
         </div>
 
         <div className="rounded-[8px] border border-line bg-surface p-3">
+          {!tasks.isError && count > 0 && (
+            <div aria-hidden="true" className="mb-1 hidden items-center gap-3 border-b border-rule px-2 pb-2 text-xs text-faint lg:flex">
+              <span className="w-4 flex-none" />
+              <span className="min-w-0 flex-1">Task</span>
+              {!projectId && <span className="w-52 flex-none">Project</span>}
+              <span className="w-28 flex-none">Due</span>
+              <span className="w-20 flex-none">Priority</span>
+            </div>
+          )}
           {tasks.isError ? (
             <p className="text-negative">Couldn’t load tasks: {errorMessage(tasks.error)} <button className="underline" onClick={() => tasks.refetch()}>Retry</button></p>
           ) : (
             <TaskList tasks={tasks.data ?? []} projects={ps} selectedId={open} onOpen={(id) => navigate(`/task/${id}`)}
-              hideProject={!!projectId}
+              hideProject={!!projectId} columns
               empty={q ? `No ${VIEWS[view].label.toLowerCase()} tasks match “${q}”.` : `No ${VIEWS[view].label.toLowerCase()} tasks here.`} />
           )}
         </div>
