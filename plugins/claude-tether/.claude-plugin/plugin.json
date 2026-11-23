@@ -1,0 +1,6 @@
+{
+  "name": "tether",
+  "version": "0.1.0",
+  "description": "Hand unfinished Claude Code work to Tether, the local task manager on this PC. Suggestions wait for your approval.",
+  "author": { "name": "Daniel Wolski" }
+}

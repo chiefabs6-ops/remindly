@@ -7,3 +7,4 @@ apps/desktop/src-tauri/gen/schemas/
 .env.*
 .DS_Store
 .taste-skill/
+!plugins/claude-tether/dist/

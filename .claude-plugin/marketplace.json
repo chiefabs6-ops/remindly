@@ -1,0 +1,16 @@
+{
+  "name": "tether-local",
+  "owner": {
+    "name": "Daniel Wolski"
+  },
+  "plugins": [
+    {
+      "name": "tether",
+      "source": "./plugins/claude-tether",
+      "description": "Hand unfinished Claude Code work to Tether for approval."
+    }
+  ],
+  "metadata": {
+    "description": "Tether: local task manager integrations for Claude Code"
+  }
+}

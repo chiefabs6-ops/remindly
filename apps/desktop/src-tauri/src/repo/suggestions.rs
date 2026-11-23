@@ -688,6 +688,7 @@ mod tests {
             context: None,
             confidence: None,
             dedupe_key: None,
+            captured_at: None,
         };
         let s = db.write(|c| create(c, &upd)).unwrap();
         // Nothing changes until approval.
@@ -769,6 +770,7 @@ mod tests {
             context: None,
             confidence: None,
             dedupe_key: None,
+            captured_at: None,
         };
         let s = db.write(|c| create(c, &mk(json!(p.id)))).unwrap();
         let r = db.write(|c| approve(c, &s.id, None)).unwrap();
