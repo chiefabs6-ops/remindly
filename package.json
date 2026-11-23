@@ -1,0 +1,14 @@
+{
+  "name": "tether",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run tauri dev -w apps/desktop",
+    "build": "npm run tauri build -w apps/desktop",
+    "typecheck": "npm exec -w apps/desktop -- tsc --noEmit",
+    "check:rust": "cd apps/desktop/src-tauri && cargo clippy && cargo test"
+  }
+}
