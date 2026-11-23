@@ -98,6 +98,12 @@ pub fn run() {
                 Box::new(e) as Box<dyn std::error::Error>
             })?;
             app.manage(state.clone());
+            app.manage(scheduler::PendingRoute::default());
+            if let Ok(n) = state.db.write(|c| reminders::prune(c, 60))
+                && n > 0
+            {
+                log::info!("pruned {n} old reminder rows");
+            }
 
             // Soft-deleted tasks are kept 30 days, then purged (proposal section 7).
             let cutoff = (chrono::Utc::now() - chrono::Duration::days(30))
@@ -201,6 +207,8 @@ pub fn run() {
             commands::reminders_get,
             commands::reminders_set,
             commands::reminder_test,
+            commands::reminder_snooze,
+            commands::take_pending_route,
             commands::autostart_get,
             commands::autostart_set,
         ])

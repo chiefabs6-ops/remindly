@@ -43,6 +43,7 @@ pub fn start(app: AppHandle, state: AppState) {
 
 fn run_once(app: &AppHandle, state: &AppState) {
     let now = Local::now();
+    let mut gap = Duration::zero();
     let result = state.db.write(|c| {
         let cfg = ReminderSettings::load(c)?;
         let last = settings::get(c, LAST_TICK_KEY)?
@@ -51,6 +52,7 @@ fn run_once(app: &AppHandle, state: &AppState) {
             .map(|t| t.with_timezone(&Local))
             .unwrap_or(now - Duration::seconds(30));
         let from = last.max(now - Duration::hours(MAX_CATCH_UP));
+        gap = now - from;
         let notices = reminders::due_notices(c, &cfg, from, now)?;
         settings::set(
             c,
@@ -59,29 +61,65 @@ fn run_once(app: &AppHandle, state: &AppState) {
         )?;
         Ok(notices)
     });
-    match result {
-        Ok(notices) if notices.len() > 3 => show_summary(app, notices.len()),
-        Ok(notices) => notices.into_iter().for_each(|n| show(app, n)),
-        Err(e) => log::warn!("reminder tick failed: {e}"),
+    let notices = match result {
+        Ok(n) => n,
+        Err(e) => return log::warn!("reminder tick failed: {e}"),
+    };
+    // After a gap (sleep, Tether closed) show one catch-up, not a burst.
+    let missed = gap > Duration::minutes(2);
+    let notices = if missed {
+        reminders::collapse_missed(notices)
+    } else {
+        notices
+    };
+    match notices.len() {
+        0 => {}
+        1 if !missed => notices.into_iter().for_each(|n| show(app, n, false)),
+        1 => notices.into_iter().for_each(|n| show(app, n, true)),
+        n if missed || n > 5 => show_summary(app, &notices, missed),
+        _ => notices.into_iter().for_each(|n| show(app, n, false)),
     }
 }
 
-fn show_summary(app: &AppHandle, count: usize) {
+fn notice_title(n: &Notice) -> String {
+    match n {
+        Notice::DueSoon { task }
+        | Notice::Due { task }
+        | Notice::Overdue { task }
+        | Notice::Snooze { task }
+        | Notice::Nudge { task } => task.title.clone(),
+        Notice::Briefing { .. } => "Morning briefing".into(),
+        Notice::Review { .. } => "End of day review".into(),
+    }
+}
+
+fn show_summary(app: &AppHandle, notices: &[Notice], missed: bool) {
+    let mut names: Vec<String> = notices.iter().take(3).map(notice_title).collect();
+    if notices.len() > 3 {
+        names.push(format!("and {} more", notices.len() - 3));
+    }
+    let title = if missed {
+        format!("{} reminders while you were away", notices.len())
+    } else {
+        format!("{} reminders", notices.len())
+    };
     toast(
         app,
         "Tether",
-        &format!("{count} reminders while you were away"),
-        "Open Today to see what is due.",
-        &[("Open", "open:today")],
+        &title,
+        &names.join(" · "),
+        &[("Open Today", "open:today"), ("Review", "open:review")],
     );
 }
 
-fn show(app: &AppHandle, n: Notice) {
+fn show(app: &AppHandle, n: Notice, missed: bool) {
+    // Windows allows five buttons. A custom time is set from the task in the app.
     let snooze = |id: &str| -> Vec<(String, String)> {
         vec![
-            ("Snooze 15 min".into(), format!("snooze:15:{id}")),
-            ("Snooze 1 h".into(), format!("snooze:60:{id}")),
-            ("Tomorrow".into(), format!("tomorrow:{id}")),
+            ("15 min".into(), format!("snooze:15:{id}")),
+            ("30 min".into(), format!("snooze:30:{id}")),
+            ("1 hour".into(), format!("snooze:60:{id}")),
+            ("Tomorrow".into(), format!("snooze:tomorrow:{id}")),
             ("Done".into(), format!("done:{id}")),
         ]
     };
@@ -89,6 +127,11 @@ fn show(app: &AppHandle, n: Notice) {
         Notice::DueSoon { task } => (
             task.title.clone(),
             format!("Due at {}", task.due_time.clone().unwrap_or_default()),
+            snooze(&task.id),
+        ),
+        Notice::Due { task } if missed => (
+            task.title.clone(),
+            format!("Was due at {}", task.due_time.clone().unwrap_or_default()),
             snooze(&task.id),
         ),
         Notice::Due { task } => (task.title.clone(), "Due now".into(), snooze(&task.id)),
@@ -110,19 +153,29 @@ fn show(app: &AppHandle, n: Notice) {
         Notice::Briefing {
             due_today,
             overdue,
+            carried_over,
+            upcoming,
             suggestions,
-        } => (
-            "Good morning".into(),
-            format!(
-                "{due_today} due today · {overdue} overdue{}",
-                if *suggestions > 0 {
-                    format!(" · {suggestions} suggestions to review")
-                } else {
-                    String::new()
-                }
-            ),
-            vec![("Open Today".into(), "open:today".into())],
-        ),
+        } => {
+            let mut parts = vec![format!("{due_today} due today")];
+            if *overdue > 0 {
+                parts.push(format!("{overdue} overdue"));
+            }
+            if *carried_over > 0 {
+                parts.push(format!("{carried_over} carried over"));
+            }
+            if *upcoming > 0 {
+                parts.push(format!("{upcoming} due in the next 3 days"));
+            }
+            if *suggestions > 0 {
+                parts.push(format!("{suggestions} suggestions to review"));
+            }
+            let mut buttons = vec![("Open Today".to_string(), "open:today".to_string())];
+            if *suggestions > 0 {
+                buttons.push(("Review suggestions".into(), "open:inbox".into()));
+            }
+            ("Good morning".into(), parts.join(" · "), buttons)
+        }
         Notice::Review { open } => (
             "End of day review".into(),
             format!("{open} task(s) still open for today. Move, reschedule or finish them."),
@@ -171,6 +224,10 @@ pub fn handle_action(app: &AppHandle, action: Option<&str>) {
         Action::Snooze { task, minutes } => state
             .db
             .write(|c| reminders::snooze(c, task, Local::now() + Duration::minutes(*minutes))),
+        Action::SnoozeTomorrow { task } => state.db.write(|c| {
+            let cfg = ReminderSettings::load(c)?;
+            reminders::snooze(c, task, reminders::next_work_start(&cfg, Local::now()))
+        }),
         Action::Tomorrow { task } => state
             .db
             .write(|c| reminders::move_to_tomorrow(c, task, today).map(|_| ())),
@@ -178,10 +235,7 @@ pub fn handle_action(app: &AppHandle, action: Option<&str>) {
             tasks::set_status(c, task, TaskStatus::Completed, false, Actor::User).map(|_| ())
         }),
         Action::Open { path } => {
-            let path = path.clone();
-            let h = app.clone();
-            let _ = app.run_on_main_thread(move || crate::show_main_window(&h));
-            let _ = app.emit(NAVIGATE, path);
+            open_at(app, path.clone());
             Ok(())
         }
     };
@@ -189,6 +243,21 @@ pub fn handle_action(app: &AppHandle, action: Option<&str>) {
         log::warn!("reminder action {action:?} failed: {e}");
     }
     let _ = app.emit(DATA_CHANGED, ());
+}
+
+/// Route to show once the window's page loads (a closed window has no listener yet).
+#[derive(Default)]
+pub struct PendingRoute(pub std::sync::Mutex<Option<String>>);
+
+fn open_at(app: &AppHandle, path: String) {
+    let has_window = app.get_webview_window("main").is_some();
+    if has_window {
+        let _ = app.emit(NAVIGATE, path);
+    } else if let Some(p) = app.try_state::<PendingRoute>() {
+        *p.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
+    }
+    let h = app.clone();
+    let _ = app.run_on_main_thread(move || crate::show_main_window(&h));
 }
 
 /// Settings > Reminders "Send a test" button.

@@ -111,6 +111,10 @@ pub enum Notice {
     Briefing {
         due_today: usize,
         overdue: usize,
+        /// Planned for an earlier day and still open ("outstanding from yesterday").
+        carried_over: usize,
+        /// Due in the next 3 days.
+        upcoming: usize,
         suggestions: usize,
     },
     Review {
@@ -268,15 +272,38 @@ pub fn due_notices(
             if cfg.briefing_enabled {
                 let at = local_dt(day, ReminderSettings::time(&cfg.briefing_time, (9, 0)));
                 if in_window(at) {
-                    let overdue = open
+                    let active: Vec<&Task> = open
+                        .iter()
+                        .filter(|t| t.status != crate::model::TaskStatus::Inbox)
+                        .collect();
+                    let soon_end = (day + Duration::days(3)).format("%Y-%m-%d").to_string();
+                    let overdue = active
                         .iter()
                         .filter(|t| t.due_date.as_deref().is_some_and(|d| d < today.as_str()))
                         .count();
-                    let due_today = open
+                    let due_today = active
                         .iter()
                         .filter(|t| {
                             t.due_date.as_deref() == Some(today.as_str())
-                                || t.scheduled_date.as_deref() == Some(today.as_str())
+                                || (t.scheduled_date.as_deref() == Some(today.as_str())
+                                    && t.due_date.as_deref().is_none_or(|d| d >= today.as_str()))
+                        })
+                        .count();
+                    let carried_over = active
+                        .iter()
+                        .filter(|t| {
+                            t.scheduled_date
+                                .as_deref()
+                                .is_some_and(|d| d < today.as_str())
+                                && t.due_date.as_deref().is_none_or(|d| d > today.as_str())
+                        })
+                        .count();
+                    let upcoming = active
+                        .iter()
+                        .filter(|t| {
+                            t.due_date
+                                .as_deref()
+                                .is_some_and(|d| d > today.as_str() && d <= soon_end.as_str())
                         })
                         .count();
                     let suggestions = suggestions::pending_counts(conn)?
@@ -288,6 +315,8 @@ pub fn due_notices(
                         Notice::Briefing {
                             due_today,
                             overdue,
+                            carried_over,
+                            upcoming,
                             suggestions,
                         },
                     ));
@@ -400,16 +429,30 @@ pub fn snooze(conn: &Connection, task_id: &str, until: DateTime<Local>) -> AppRe
 /// What a toast button asked for. Strings look like `snooze:15:<id>`, `done:<id>`, `open:<id>`.
 #[derive(Debug, PartialEq)]
 pub enum Action {
-    Snooze { task: String, minutes: i64 },
-    Tomorrow { task: String },
-    Done { task: String },
-    Open { path: String },
+    Snooze {
+        task: String,
+        minutes: i64,
+    },
+    /// Quiet until the start of the next work day (the task's dates are not changed).
+    SnoozeTomorrow {
+        task: String,
+    },
+    Tomorrow {
+        task: String,
+    },
+    Done {
+        task: String,
+    },
+    Open {
+        path: String,
+    },
 }
 
 pub fn parse_action(s: Option<&str>) -> Action {
     let s = s.unwrap_or("");
     let mut parts = s.splitn(3, ':');
     match (parts.next(), parts.next(), parts.next()) {
+        (Some("snooze"), Some("tomorrow"), Some(id)) => Action::SnoozeTomorrow { task: id.into() },
         (Some("snooze"), Some(m), Some(id)) => match m.parse::<i64>() {
             Ok(minutes) if (1..=7 * 24 * 60).contains(&minutes) => Action::Snooze {
                 task: id.into(),
@@ -433,10 +476,25 @@ pub fn parse_action(s: Option<&str>) -> Action {
     }
 }
 
-/// "Tomorrow" from a reminder: move the due date (keeping the time) or the do-on date.
+/// Next work day's start (e.g. tomorrow 09:00, or Monday after a Friday).
+pub fn next_work_start(cfg: &ReminderSettings, now: DateTime<Local>) -> DateTime<Local> {
+    let start = ReminderSettings::time(&cfg.work_start, (9, 0));
+    let mut day = now.date_naive() + Duration::days(1);
+    for _ in 0..7 {
+        if cfg.is_work_day(day) {
+            break;
+        }
+        day += Duration::days(1);
+    }
+    local_dt(day, start)
+}
+
+/// Move a task to tomorrow: the due date (keeping the time) or the do-on date. A do-on date of
+/// today or earlier is cleared so the task leaves today's lists.
 pub fn move_to_tomorrow(conn: &Connection, task_id: &str, today: NaiveDate) -> AppResult<Task> {
     let t = tasks::get(conn, task_id)?;
     let tomorrow = (today + Duration::days(1)).format("%Y-%m-%d").to_string();
+    let today_s = today.format("%Y-%m-%d").to_string();
     if t.due_date.is_some() {
         tasks::reschedule(
             conn,
@@ -444,10 +502,57 @@ pub fn move_to_tomorrow(conn: &Connection, task_id: &str, today: NaiveDate) -> A
             Some(tomorrow),
             t.due_time.clone(),
             crate::model::Actor::User,
-        )
+        )?;
+        if t.scheduled_date
+            .as_deref()
+            .is_some_and(|d| d <= today_s.as_str())
+        {
+            return tasks::schedule(conn, task_id, None, crate::model::Actor::User);
+        }
+        tasks::get(conn, task_id)
     } else {
         tasks::schedule(conn, task_id, Some(tomorrow), crate::model::Actor::User)
     }
+}
+
+/// Drop reminder rows that fired or were dismissed more than `days` ago.
+pub fn prune(conn: &Connection, days: i64) -> AppResult<usize> {
+    let cut = (chrono::Utc::now() - Duration::days(days))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    Ok(conn.execute(
+        "DELETE FROM reminders WHERE coalesce(fired_at, dismissed_at) IS NOT NULL AND coalesce(fired_at, dismissed_at) < ?1",
+        [cut],
+    )?)
+}
+
+/// Collapse notices found after a gap (sleep, app closed): per task only the latest stage counts.
+pub fn collapse_missed(notices: Vec<Notice>) -> Vec<Notice> {
+    fn rank(n: &Notice) -> u8 {
+        match n {
+            Notice::DueSoon { .. } => 1,
+            Notice::Due { .. } => 2,
+            Notice::Snooze { .. } | Notice::Nudge { .. } => 3,
+            Notice::Overdue { .. } => 4,
+            _ => 0,
+        }
+    }
+    let mut out: Vec<Notice> = Vec::new();
+    for n in notices {
+        let id = n.key().1.map(str::to_string);
+        match id {
+            Some(id) => {
+                if let Some(pos) = out.iter().position(|o| o.key().1 == Some(id.as_str())) {
+                    if rank(&n) > rank(&out[pos]) {
+                        out[pos] = n;
+                    }
+                } else {
+                    out.push(n);
+                }
+            }
+            None => out.push(n),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -563,6 +668,8 @@ mod tests {
             vec![Notice::Briefing {
                 due_today: 1,
                 overdue: 1,
+                carried_over: 0,
+                upcoming: 0,
                 suggestions: 0
             }]
         );
@@ -744,12 +851,81 @@ mod tests {
             Action::Open { path: "/".into() }
         );
         assert_eq!(
+            parse_action(Some("snooze:tomorrow:T1")),
+            Action::SnoozeTomorrow { task: "T1".into() }
+        );
+        assert_eq!(
             parse_action(Some("open:T9")),
             Action::Open {
                 path: "/tasks?task=T9".into()
             }
         );
         assert_eq!(parse_action(None), Action::Open { path: "/".into() });
+    }
+
+    #[test]
+    fn missed_notices_collapse_per_task() {
+        let db = db();
+        mk(&db, "A", Some("2026-11-23"), Some("14:00"));
+        let cfg = ReminderSettings {
+            briefing_enabled: false,
+            review_enabled: false,
+            ..Default::default()
+        };
+        // Asleep 13:30 -> 15:30 over A: due soon, due and overdue all fall in the gap.
+        let n = db
+            .write(|c| {
+                due_notices(
+                    c,
+                    &cfg,
+                    at("2026-11-23", "13:30"),
+                    at("2026-11-23", "15:30"),
+                )
+            })
+            .unwrap();
+        assert_eq!(n.len(), 3);
+        let c = collapse_missed(n);
+        assert_eq!(kinds(&c), ["overdue"]);
+    }
+
+    #[test]
+    fn next_work_start_skips_weekend() {
+        let cfg = ReminderSettings::default();
+        // Friday 2026-11-27 16:00 -> Monday 09:00.
+        assert_eq!(
+            next_work_start(&cfg, at("2026-11-27", "16:00")),
+            at("2026-11-30", "09:00")
+        );
+        assert_eq!(
+            next_work_start(&cfg, at("2026-11-23", "16:00")),
+            at("2026-11-24", "09:00")
+        );
+    }
+
+    #[test]
+    fn moving_a_dated_task_clears_an_old_do_on_date() {
+        let db = db();
+        let t = db
+            .write(|c| {
+                tasks::create(
+                    c,
+                    &TaskInput {
+                        title: "Planned".into(),
+                        due_date: Some("2026-11-25".into()),
+                        scheduled_date: Some("2026-11-23".into()),
+                        ..Default::default()
+                    },
+                    &TaskOrigin::default(),
+                    Actor::User,
+                )
+            })
+            .unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 11, 23).unwrap();
+        let m = db.write(|c| move_to_tomorrow(c, &t.id, today)).unwrap();
+        assert_eq!(
+            (m.due_date.as_deref(), m.scheduled_date.as_deref()),
+            (Some("2026-11-24"), None)
+        );
     }
 
     #[test]

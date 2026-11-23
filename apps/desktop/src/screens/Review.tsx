@@ -8,7 +8,15 @@ import { useAction, useDashboard } from "../lib/queries";
 function ReviewRow({ t }: { t: Task }) {
   const today = todayIso();
   const [date, setDate] = useState("");
-  const move = useAction((d: string | null) => (t.dueDate ? api.reschedule(t.id, d, d ? t.dueTime : null) : api.schedule(t.id, d)));
+  const move = useAction(async (d: string) => {
+    if (t.dueDate) {
+      await api.reschedule(t.id, d, t.dueTime);
+      // A "do on" date of today or earlier would keep it on today's list.
+      if (t.scheduledDate && t.scheduledDate <= today) return api.schedule(t.id, null);
+      return t;
+    }
+    return api.schedule(t.id, d);
+  });
   const backlog = useAction(async () => {
     await api.reschedule(t.id, null, null);
     return api.schedule(t.id, null);

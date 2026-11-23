@@ -5,6 +5,7 @@ import App from "../App";
 import { mockInvoke, resetMock } from "../lib/mock";
 import { setBackend } from "../lib/api";
 import { queryClient } from "../lib/queries";
+import { todayIso } from "../lib/format";
 
 beforeEach(() => {
   resetMock();
@@ -106,7 +107,7 @@ describe("Review", () => {
     await user.click(within(row).getByRole("button", { name: "Tomorrow" }));
     await waitFor(async () => {
       const [t] = await mockInvoke<{ scheduledDate: string | null }[]>("tasks_list", { filter: { query: "Book car service" } });
-      expect(t.scheduledDate).not.toBe(new Date().toISOString().slice(0, 10));
+      expect(t.scheduledDate).not.toBe(todayIso());
     });
     const draft = await screen.findByRole("group", { name: "What to do with Draft newsletter intro" });
     await user.click(within(draft).getByRole("button", { name: "Done" }));

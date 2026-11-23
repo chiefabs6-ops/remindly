@@ -59,6 +59,8 @@ export function TaskPanel({ id, projects, onClose, onOpen }: {
     }),
   );
   const reschedule = useAction((d: string | null) => api.reschedule(id, d, null));
+  const [remindAt, setRemindAt] = useState("");
+  const remind = useAction((local: string) => api.remindAt(id, new Date(local).toISOString()));
   const duplicate = useAction(() => api.duplicate(id));
   const remove = useAction(() => api.deleteTask(id));
   const addSub = useAction((title: string) => api.createTask({ title }, id));
@@ -153,6 +155,17 @@ export function TaskPanel({ id, projects, onClose, onOpen }: {
           <button type="button" className="btn" onClick={() => reschedule.mutate(addDays(today, 1))}>Tomorrow</button>
           <button type="button" className="btn" onClick={() => reschedule.mutate(addDays(today, 7))}>Next week</button>
           {t.dueDate && <button type="button" className="btn btn-ghost" onClick={() => reschedule.mutate(null)}>No date</button>}
+        </div>
+
+        <div>
+          <label className="label" htmlFor="t-remind">Remind me at</label>
+          <div className="flex gap-2">
+            <input id="t-remind" type="datetime-local" className="field" value={remindAt} onChange={(e) => { setRemindAt(e.target.value); remind.reset(); }} />
+            <button type="button" className="btn" disabled={!remindAt || remind.isPending}
+              onClick={() => remind.mutate(remindAt, { onSuccess: () => setRemindAt("") })}>Set</button>
+          </div>
+          {remind.isSuccess && <p className="mt-1 text-xs text-muted">Reminder set.</p>}
+          {remind.isError && <p className="mt-1 text-negative">{errorMessage(remind.error)}</p>}
         </div>
 
         <div>

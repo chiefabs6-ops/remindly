@@ -61,6 +61,7 @@ export function Layout() {
     let stop: (() => void) | undefined;
     let cancelled = false;
     onNavigate((path) => navigate(path)).then((u) => (cancelled ? u() : (stop = u)));
+    api.takePendingRoute().then((p) => p && !cancelled && navigate(p)).catch(() => {});
     return () => {
       cancelled = true;
       stop?.();

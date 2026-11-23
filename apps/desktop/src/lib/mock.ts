@@ -505,6 +505,8 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return value;
   },
   reminder_test: () => undefined,
+  reminder_snooze: () => undefined,
+  take_pending_route: () => null,
   autostart_get: () => !!store.settings.autostart,
   autostart_set: ({ enabled }) => {
     store.settings.autostart = enabled;

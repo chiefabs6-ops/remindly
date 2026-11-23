@@ -327,3 +327,21 @@ pub fn autostart_set(app: tauri::AppHandle, enabled: bool) -> AppResult<bool> {
     r.map_err(|e| AppError::Io(std::io::Error::other(e.to_string())))?;
     Ok(enabled)
 }
+
+/// "Remind me at" from the task panel: a custom snooze time (RFC 3339, in the future).
+#[tauri::command(async)]
+pub fn reminder_snooze(s: Db, id: String, until: String) -> AppResult<()> {
+    let t = chrono::DateTime::parse_from_rfc3339(&until)
+        .map_err(|_| AppError::invalid("pick a date and time"))?
+        .with_timezone(&chrono::Local);
+    if t <= chrono::Local::now() {
+        return Err(AppError::invalid("pick a time in the future"));
+    }
+    s.db.write(|c| crate::reminders::snooze(c, &id, t))
+}
+
+/// A screen requested by a notification click before the window existed.
+#[tauri::command]
+pub fn take_pending_route(p: tauri::State<'_, crate::scheduler::PendingRoute>) -> Option<String> {
+    p.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
