@@ -491,6 +491,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
   unpair_all: () => {
     store.settings.paired = [];
   },
+  code_projects_list: () => [
+    { id: "cp1", rootDir: "C:\\Code\\educator-platform", name: "educator-platform", gitRemote: null, projectId: store.projects[0]?.id ?? null, lastSeenAt: now() },
+  ],
+  code_project_set_project: ({ id: cid, projectId }) => ({ id: cid, rootDir: "", name: "", gitRemote: null, projectId, lastSeenAt: now() }),
   api_info: () => ({ url: "http://127.0.0.1:47821", tokenHint: "3f9a", dataDir: "%APPDATA%\\ie.tether.app" }),
 };
 

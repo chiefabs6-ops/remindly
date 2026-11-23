@@ -55,7 +55,7 @@ function ChromePairing() {
         </button>
         {count > 0 && (
           <button className="btn btn-ghost btn-danger"
-            onClick={() => confirm("Unpair Chrome? Tether issues a new token, so the extension must be paired again.") && unpair.mutate(undefined)}>
+            onClick={() => confirm("Unpair Chrome? Tether issues a new token, so the extension must be paired again. Claude Code reads the new token by itself.") && unpair.mutate(undefined)}>
             Unpair all
           </button>
         )}

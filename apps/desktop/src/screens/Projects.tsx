@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import type { Project } from "@tether/core";
 import { api, errorMessage } from "../lib/api";
 import { useAction, useProjects } from "../lib/queries";
@@ -69,6 +70,36 @@ function Row({ p }: { p: Project }) {
   );
 }
 
+function CodeFolders({ projects }: { projects: Project[] }) {
+  const folders = useQuery({ queryKey: ["tether", "code-projects"], queryFn: api.codeProjects });
+  const link = useAction(({ id, projectId }: { id: string; projectId: string | null }) => api.linkCodeProject(id, projectId));
+  const list = folders.data ?? [];
+  return (
+    <section className="mt-8" aria-labelledby="cf-h">
+      <h2 id="cf-h" className="font-medium">Claude Code folders</h2>
+      <p className="mt-1 text-muted">Folders you have opened in Claude Code. Link each to a project so its suggestions land there.</p>
+      <ul className="mt-3 rounded-[8px] border border-line bg-surface px-2" aria-label="Claude Code folders">
+        {list.length === 0 && <li className="p-3 text-muted">None yet. They appear after Claude Code first talks to Tether from a repo.</li>}
+        {list.map((f) => (
+          <li key={f.id} className="flex min-h-12 items-center gap-3 border-b border-rule px-2 last:border-0">
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium">{f.name}</p>
+              <p className="truncate text-xs text-muted">{f.rootDir}</p>
+            </div>
+            <label htmlFor={`cf-${f.id}`} className="sr-only">Project for {f.name}</label>
+            <select id={`cf-${f.id}`} className="field h-8 w-56 text-[13px]" value={f.projectId ?? ""}
+              onChange={(e) => link.mutate({ id: f.id, projectId: e.target.value || null })}>
+              <option value="">Not linked</option>
+              {projects.filter((p) => !p.archivedAt).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </li>
+        ))}
+      </ul>
+      {link.isError && <p className="mt-2 text-negative">{errorMessage(link.error)}</p>}
+    </section>
+  );
+}
+
 export function ProjectsScreen() {
   const projects = useProjects(true);
   const list = projects.data ?? [];
@@ -82,6 +113,7 @@ export function ProjectsScreen() {
         {list.length === 0 && <li className="p-3 text-muted">No projects yet. Add your first one above.</li>}
         {list.map((p) => <Row key={p.id} p={p} />)}
       </ul>
+      <CodeFolders projects={list} />
     </div>
   );
 }

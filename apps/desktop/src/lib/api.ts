@@ -21,6 +21,15 @@ import type {
   TaskStatus,
 } from "@tether/core";
 
+export interface CodeProject {
+  id: string;
+  rootDir: string;
+  name: string;
+  gitRemote: string | null;
+  projectId: string | null;
+  lastSeenAt: string;
+}
+
 type Args = Record<string, unknown>;
 type Invoke = <T>(cmd: string, args?: Args) => Promise<T>;
 
@@ -97,6 +106,9 @@ export const api = {
   startPairing: () => call<{ code: string; expiresInSecs: number }>("pairing_start"),
   pairedBrowsers: () => call<string[]>("paired_browsers"),
   unpairAll: () => call<void>("unpair_all"),
+  codeProjects: () => call<CodeProject[]>("code_projects_list"),
+  linkCodeProject: (id: string, projectId: string | null) =>
+    call<CodeProject>("code_project_set_project", { id, projectId }),
 };
 
 /** Subscribe to backend data changes (API writes). Returns an unsubscribe function. */

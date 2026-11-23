@@ -265,3 +265,19 @@ pub fn unpair_all(s: Db) -> AppResult<()> {
     s.db.write(|c| settings::set(c, ALLOWED_ORIGINS_KEY, &Value::Array(vec![])))?;
     s.rotate_token()
 }
+
+// ---------- Claude Code repos ----------
+
+#[tauri::command(async)]
+pub fn code_projects_list(s: Db) -> AppResult<Vec<crate::repo::code_projects::CodeProject>> {
+    s.db.read(crate::repo::code_projects::list)
+}
+
+#[tauri::command(async)]
+pub fn code_project_set_project(
+    s: Db,
+    id: String,
+    project_id: Option<String>,
+) -> AppResult<crate::repo::code_projects::CodeProject> {
+    s.db.write(|c| crate::repo::code_projects::set_project(c, &id, project_id.as_deref()))
+}

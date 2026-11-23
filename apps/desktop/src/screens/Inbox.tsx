@@ -7,11 +7,85 @@ import { TaskPanel } from "../components/TaskPanel";
 import { SourceIcon, TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
 import { ago, dueLabel, hostOf } from "../lib/format";
-import { useAction, useProjects, useSuggestions, useTasks } from "../lib/queries";
+import { useAction, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
 
 const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
 const title = (s: Suggestion) =>
-  (s.payload as SuggestedTask).title || (s.payload as NoteInput).title || "Untitled note";
+  s.kind === "task_update"
+    ? "Change to an existing task"
+    : (s.payload as SuggestedTask).title || (s.payload as NoteInput).title || "Untitled note";
+
+type UpdatePayload = {
+  title?: string;
+  status?: string;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  priority?: number;
+  appendNote?: string;
+};
+
+const PRI = ["None", "Low", "Medium", "High"];
+const show = (v: unknown) => (v === null || v === undefined || v === "" ? "none" : String(v).replace("_", " "));
+
+/** A proposed change to an existing task: the task, then each field old → new. */
+function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
+  const target = useTask(s.targetTaskId);
+  const p = s.payload as UpdatePayload;
+  const approve = useAction(() => api.approveSuggestion(s.id));
+  const dismiss = useAction(() => api.dismissSuggestion(s.id));
+  const t = target.data;
+  const rows: [string, string, string][] = [];
+  if (t) {
+    if (p.title !== undefined) rows.push(["Title", t.title, p.title]);
+    if (p.status !== undefined) rows.push(["Status", show(t.status), show(p.status)]);
+    if (p.dueDate !== undefined) rows.push(["Due date", show(t.dueDate), p.dueDate === null ? "cleared" : show(p.dueDate)]);
+    if (p.dueTime !== undefined) rows.push(["Due time", show(t.dueTime), p.dueTime === null ? "cleared" : show(p.dueTime)]);
+    if (p.priority !== undefined) rows.push(["Priority", PRI[t.priority], PRI[p.priority] ?? String(p.priority)]);
+  }
+  return (
+    <article className="mx-auto max-w-[720px] px-6 py-6" aria-label="Review change">
+      <p className="mb-1 text-xs text-muted">From {ORIGIN[s.origin]} · {ago(s.createdAt)}</p>
+      <h2 className="mb-4 text-xl font-semibold">Apply this change?</h2>
+      {target.isError ? (
+        <p className="text-muted">The task this change was for no longer exists. Dismiss it.</p>
+      ) : !t ? (
+        <div className="h-24 rounded-[8px] bg-active" aria-busy="true" />
+      ) : (
+        <>
+          <p className="label">Task</p>
+          <p className="mb-4 font-medium">
+            <Link className="underline" to={`/tasks?task=${t.id}`}>{t.title}</Link>
+          </p>
+          {rows.length > 0 && (
+            <table className="mb-4 w-full text-left">
+              <thead>
+                <tr className="text-xs text-muted"><th className="py-1 font-normal">Field</th><th className="font-normal">Now</th><th className="font-normal">After approval</th></tr>
+              </thead>
+              <tbody>
+                {rows.map(([f, a, b]) => (
+                  <tr key={f} className="border-t border-rule"><td className="py-2 text-muted">{f}</td><td>{a}</td><td className="font-medium">{b}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {p.appendNote && (
+            <div className="rounded-[8px] bg-raised p-3">
+              <p className="label">Note added to the task</p>
+              <p className="whitespace-pre-wrap">{p.appendNote}</p>
+            </div>
+          )}
+        </>
+      )}
+      <div className="mt-6 flex items-center gap-2">
+        <button className="btn btn-primary" disabled={!t || approve.isPending} onClick={() => approve.mutate(undefined, { onSuccess: onDone })}>
+          Apply change
+        </button>
+        <button className="btn" disabled={dismiss.isPending} onClick={() => dismiss.mutate(undefined, { onSuccess: onDone })}>Dismiss</button>
+        {(approve.isError || dismiss.isError) && <span className="text-negative">{errorMessage(approve.error ?? dismiss.error)}</span>}
+      </div>
+    </article>
+  );
+}
 
 /** Free-form context from Claude Code (completed / remaining / why / resume hint). */
 function Context({ ctx }: { ctx: Record<string, unknown> }) {
@@ -184,7 +258,11 @@ export function InboxScreen() {
           </ul>
           <div className="min-w-0 flex-1 overflow-y-auto max-md:hidden">
             {selected ? (
-              <Review key={selected.id} s={selected} projects={ps} onDone={() => setParams({})} />
+              selected.kind === "task_update" ? (
+                <UpdateReview key={selected.id} s={selected} onDone={() => setParams({})} />
+              ) : (
+                <Review key={selected.id} s={selected} projects={ps} onDone={() => setParams({})} />
+              )
             ) : (
               <p className="p-8 text-muted">Select a suggestion to review it.</p>
             )}

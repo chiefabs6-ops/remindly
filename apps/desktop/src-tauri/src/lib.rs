@@ -6,6 +6,7 @@ pub mod db;
 pub mod error;
 pub mod model;
 pub mod repo;
+pub mod spool;
 pub mod state;
 
 use std::sync::Arc;
@@ -105,6 +106,26 @@ pub fn run() {
                 Err(e) => log::warn!("purge failed: {e}"),
             }
 
+            // Import suggestions the MCP server spooled to disk while Tether was closed.
+            {
+                let state = state.clone();
+                let notify = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+                    loop {
+                        tick.tick().await;
+                        let (db, dir) = (state.db.clone(), state.data_dir.clone());
+                        let r = tokio::task::spawn_blocking(move || spool::import(&db, &dir))
+                            .await
+                            .unwrap_or_default();
+                        if r.imported > 0 {
+                            log::info!("imported {} spooled suggestions", r.imported);
+                            let _ = notify.emit(DATA_CHANGED, ());
+                        }
+                    }
+                });
+            }
+
             let handle = app.handle().clone();
             let opener = app.handle().clone();
             tauri::async_runtime::spawn(api::serve(ApiState {
@@ -168,6 +189,8 @@ pub fn run() {
             commands::pairing_start,
             commands::paired_browsers,
             commands::unpair_all,
+            commands::code_projects_list,
+            commands::code_project_set_project,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -3,8 +3,8 @@
 Local-first productivity assistant for Windows: a Tauri 2 desktop app, a Chrome extension and a Claude Code
 plugin, all sharing one local SQLite database. Nothing leaves your PC.
 
-Status: **Phase 0 spike** (proving tray, local API, SQLite and Windows notifications). See
-[docs/PROPOSAL.md](docs/PROPOSAL.md) for the full plan.
+Status: Phases 1–3 built (desktop app, Chrome extension, Claude Code plugin). See
+[docs/PROPOSAL.md](docs/PROPOSAL.md) for the plan and the phase PRs for details.
 
 ## Requirements (Windows)
 
@@ -22,3 +22,21 @@ npm run build        # build the NSIS installer (apps/desktop/src-tauri/target/r
 npm run typecheck    # TypeScript check
 npm run check:rust   # clippy + cargo test
 ```
+
+## Chrome extension
+
+See [apps/extension/README.md](apps/extension/README.md): build with `npm run build:extension`, load
+`apps/extension/dist` unpacked, then pair from Tether's Settings → Chrome.
+
+## Claude Code plugin
+
+The plugin (`plugins/claude-tether`) adds Tether's MCP tools, a SessionStart hook and the
+`/tether:handoff` skill to every project. Install it once from this repo's local marketplace:
+
+```
+claude plugin marketplace add C:\Users\danze\Desktop\Apps\tether
+claude plugin install tether@tether-local
+```
+
+`plugins/claude-tether/dist` is committed (Claude Code runs it directly). After changing
+`plugins/claude-tether/src`, run `npm run build:plugin` and commit the new `dist`.

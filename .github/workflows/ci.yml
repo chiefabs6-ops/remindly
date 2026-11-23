@@ -31,6 +31,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build:extension
+      - run: npm run build:plugin
       - name: Build frontend (needed by tauri::generate_context!)
         run: npm run build -w apps/desktop
       - name: Rust fmt

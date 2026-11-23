@@ -4,14 +4,16 @@
   "version": "0.1.0",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "plugins/*"
   ],
   "scripts": {
     "dev": "npm run tauri dev -w apps/desktop",
     "build": "npm run tauri build -w apps/desktop",
-    "typecheck": "npm exec -w apps/desktop -- tsc --noEmit && npm run typecheck -w packages/core && npm run typecheck -w @tether/extension",
-    "test": "npm test -w packages/core && npm test -w apps/desktop && npm test -w @tether/extension",
+    "typecheck": "npm exec -w apps/desktop -- tsc --noEmit && npm run typecheck -w packages/core && npm run typecheck -w @tether/extension && npm run typecheck -w @tether/claude-plugin",
+    "test": "npm test -w packages/core && npm test -w apps/desktop && npm test -w @tether/extension && npm test -w @tether/claude-plugin",
     "check:rust": "cd apps/desktop/src-tauri && cargo clippy && cargo test",
-    "build:extension": "npm run build -w @tether/extension"
+    "build:extension": "npm run build -w @tether/extension",
+    "build:plugin": "npm run build -w @tether/claude-plugin"
   }
 }
