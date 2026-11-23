@@ -54,6 +54,11 @@ export const useNotes = (f: NoteFilter) => useQuery({ queryKey: keys.notes(f), q
 export const useSuggestions = (s: SuggestionStatus | null) =>
   useQuery({ queryKey: keys.suggestions(s), queryFn: () => api.suggestions(s) });
 export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: api.settings });
+/** True when the user switched local AI on (buttons stay hidden otherwise). */
+export function useAiEnabled() {
+  const q = useQuery({ queryKey: ["tether", "ai-settings"], queryFn: api.aiSettings });
+  return !!q.data?.enabled;
+}
 export const useSearch = (q: string) =>
   useQuery({ queryKey: keys.search(q), queryFn: () => api.search(q), enabled: q.trim().length > 0 });
 

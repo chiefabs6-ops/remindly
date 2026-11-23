@@ -292,7 +292,7 @@ export function createServer() {
     {
       title: "Tether: suggest a change to a task",
       description:
-        "Propose a change to an existing task (progress note, new due date, status, priority). Applied only after the user approves it in Tether. Use instead of creating a near-duplicate task.",
+        "Propose a change to an existing task (progress note, new due date, status, priority, or subtasks to add as a breakdown). Applied only after the user approves it in Tether. Use instead of creating a near-duplicate task.",
       inputSchema: z.object({
         taskId: z.string().min(1).max(64),
         appendNote: z.string().max(4000).optional().describe("Progress made / what remains, appended to the task notes"),
@@ -301,6 +301,7 @@ export function createServer() {
         dueTime: TIME.nullable().optional(),
         priority: z.number().int().min(0).max(3).optional(),
         title: z.string().min(3).max(200).optional(),
+        addSubtasks: z.array(z.string().min(3).max(200)).max(15).optional().describe("Concrete steps to add as subtasks (a breakdown)"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },

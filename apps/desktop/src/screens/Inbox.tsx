@@ -7,7 +7,7 @@ import { TaskPanel } from "../components/TaskPanel";
 import { SourceIcon, TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
 import { ago, dueLabel, hostOf } from "../lib/format";
-import { useAction, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
+import { useAction, useAiEnabled, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
 
 const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
 const title = (s: Suggestion) =>
@@ -22,6 +22,7 @@ type UpdatePayload = {
   dueTime?: string | null;
   priority?: number;
   appendNote?: string;
+  addSubtasks?: string[];
 };
 
 const PRI = ["None", "Low", "Medium", "High"];
@@ -67,6 +68,12 @@ function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
                 ))}
               </tbody>
             </table>
+          )}
+          {p.addSubtasks && p.addSubtasks.length > 0 && (
+            <div className="mb-4 rounded-[8px] bg-raised p-3">
+              <p className="label">Subtasks to add</p>
+              <ul className="list-disc pl-5">{p.addSubtasks.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            </div>
           )}
           {p.appendNote && (
             <div className="rounded-[8px] bg-raised p-3">
@@ -122,6 +129,20 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
       : undefined),
   );
   const dismiss = useAction(() => api.dismissSuggestion(s.id));
+  const aiOn = useAiEnabled();
+  const ai = useAction(() => api.aiExtract(p.sourceSelection ?? p.title ?? "", p.sourceTitle ?? null));
+  const applyAi = () =>
+    ai.mutate(undefined, {
+      onSuccess: ({ value: v }) =>
+        setForm((f) => ({
+          ...f,
+          title: v.title || f.title,
+          description: v.description ?? f.description,
+          dueDate: v.dueDate ?? f.dueDate,
+          priority: (v.priority ?? f.priority) as typeof f.priority,
+          projectId: projects.find((x) => x.name === v.projectName)?.id ?? f.projectId,
+        })),
+    });
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
   const deadlineGuess = s.confidence?.dueDate !== undefined && s.confidence.dueDate < 0.8;
 
@@ -131,7 +152,16 @@ function Review({ s, projects, onDone }: { s: Suggestion; projects: Project[]; o
         <SourceIcon source={s.origin === "chrome" ? "chrome" : s.origin === "claude" ? "claude" : "ai"} />
         From {ORIGIN[s.origin]} · {ago(s.createdAt)}
       </p>
-      <h2 className="mb-4 text-xl font-semibold">{s.kind === "note" ? "Save this note?" : "Add this task?"}</h2>
+      <div className="mb-4 flex items-center gap-3">
+        <h2 className="text-xl font-semibold">{s.kind === "note" ? "Save this note?" : "Add this task?"}</h2>
+        {aiOn && s.kind === "task" && (
+          <button className="btn ml-auto" disabled={ai.isPending} onClick={applyAi} title="Fills the form; nothing is saved until you approve">
+            {ai.isPending ? "Thinking…" : "Suggest with AI"}
+          </button>
+        )}
+      </div>
+      {ai.isError && <p className="mb-3 text-negative">{errorMessage(ai.error)}</p>}
+      {ai.isSuccess && <p className="mb-3 rounded-[8px] bg-[var(--pill-today-bg)] px-3 py-2 text-[var(--pill-today-ink)]">The fields below were filled by local AI. Check them before approving.</p>}
 
       {s.possibleDuplicateOf && (
         <p className="mb-4 flex items-start gap-2 rounded-[8px] bg-[var(--pill-warning-bg)] px-3 py-2 text-[var(--pill-warning-ink)]">
@@ -280,7 +310,7 @@ export function InboxScreen() {
           </div>
           {openTask && (
             <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-              <TaskPanel id={openTask} projects={ps} onClose={() => setParams({ tab: "unsorted" })} onOpen={(id) => setParams({ tab: "unsorted", task: id })} />
+              <TaskPanel key={openTask} id={openTask} projects={ps} onClose={() => setParams({ tab: "unsorted" })} onOpen={(id) => setParams({ tab: "unsorted", task: id })} />
             </div>
           )}
         </div>

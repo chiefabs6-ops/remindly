@@ -95,7 +95,7 @@ Status set: `inbox`, `not_started`, `in_progress`, `waiting`, `completed`, `arch
 | Claude Code | **Claude Code plugin** = MCP server (TS SDK v2 `@modelcontextprotocol/server`) + hooks + skill **[Confirmed]** | One install, works in every repo. |
 | Notifications | **`tauri-winrt-notification`** (official tauri-apps crate) | Supports buttons and an activation callback. The stock Tauri notification plugin has **no action buttons on Windows** **[Confirmed]**. |
 | Tray / autostart / single-instance | Tauri tray API, `tauri-plugin-autostart`, `tauri-plugin-single-instance` **[Confirmed]** | Official. |
-| AI (optional) | **Ollama**, `qwen2.5:3b` or `qwen3:4b`, structured JSON output **[Confirmed feature]** | Free, local, easy to swap models. |
+| AI (optional) | **Ollama**, `qwen2.5:1.5b` or `qwen3:4b`, structured JSON output **[Confirmed feature]** | Free, local, easy to swap models. |
 | Installer | **NSIS, per-user** (no admin) **[Confirmed]** | Writes HKCU autostart; registers the AUMID for toasts. |
 | Repo tooling | npm workspaces + Cargo; Vitest, Playwright, `cargo test` | No extra package manager. |
 
@@ -362,7 +362,7 @@ Results are kept small (well under the 25k-token MCP output limit) **[Confirmed 
 | "What should I do first?" | ✅ score (overdue, due, priority, age) | Reasoned explanation |
 
 Ollama plan (Phase 6, optional):
-- Default model `qwen2.5:3b` (~2 GB); alternative `qwen3:4b` (~2.5 GB, `think:false`).
+- Default model `qwen2.5:1.5b` (~1 GB); alternative `qwen3:4b` (~2.5 GB, `think:false`).
 - `format` = JSON schema, `temperature 0`, `keep_alive: "2m"` so RAM is freed soon after use **[Confirmed options]**.
 - Run on CPU. Iris Xe via Vulkan is flaky and not faster for small models **[research]**.
 - AI output always lands as a suggestion with its fields marked "AI".

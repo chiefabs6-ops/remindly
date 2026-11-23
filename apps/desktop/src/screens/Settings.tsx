@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, errorMessage, type BackupSettings, type ReminderSettings } from "../lib/api";
+import { api, errorMessage, type AiSettings, type BackupSettings, type ReminderSettings } from "../lib/api";
 import { useAction, useSettings } from "../lib/queries";
 import { useQuery } from "@tanstack/react-query";
 
@@ -240,6 +240,51 @@ function Backups() {
   );
 }
 
+function LocalAi() {
+  const cfg = useQuery({ queryKey: ["tether", "ai-settings"], queryFn: api.aiSettings });
+  const status = useQuery({ queryKey: ["tether", "ai-status"], queryFn: api.aiStatus });
+  const [a, setA] = useState<AiSettings | null>(null);
+  useEffect(() => {
+    if (cfg.data) setA(cfg.data);
+  }, [cfg.data]);
+  const save = useAction((v: AiSettings) => api.setAiSettings(v));
+  const test = useAction(() => api.aiExtract("Please send the updated teacher list to the programme lead before Friday", null));
+  if (!a) return <div className="h-24 rounded-[8px] bg-active" aria-busy="true" />;
+  const dirty = JSON.stringify(a) !== JSON.stringify(cfg.data);
+  const st = status.data;
+  return (
+    <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); save.mutate(a, { onSuccess: () => status.refetch() }); }}>
+      <Toggle id="ai-on" label="Use local AI" checked={a.enabled} onChange={(v) => setA({ ...a, enabled: v })}
+        hint="Adds “Suggest with AI” and “Break into steps”. Results are suggestions you confirm. Text never leaves this PC. A small model (qwen2.5:1.5b, about 1 GB, loaded only while working) is enough." />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label" htmlFor="ai-model">Model</label>
+          <input id="ai-model" className="field" value={a.model} onChange={(e) => setA({ ...a, model: e.target.value })} />
+        </div>
+        <div>
+          <label className="label" htmlFor="ai-url">Ollama address (this PC only)</label>
+          <input id="ai-url" className="field" value={a.url} onChange={(e) => setA({ ...a, url: e.target.value })} />
+        </div>
+      </div>
+      <p className="text-[13px] text-muted">
+        {!st ? "Checking Ollama…" : !st.enabled ? "Local AI is off. Turn it on and Save to check Ollama." :
+          !st.reachable ? "Ollama is not running. Install it from ollama.com and start it." :
+          st.modelInstalled ? `Ollama ${st.version} is running and ${cfg.data?.model} is installed.` :
+          `Ollama ${st.version} is running, but ${cfg.data?.model} is not installed. Run: ollama pull ${cfg.data?.model}`}
+      </p>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <button className="btn btn-primary" disabled={!dirty || save.isPending}>Save</button>
+        <button type="button" className="btn" disabled={!cfg.data?.enabled || test.isPending} onClick={() => test.mutate(undefined)}>
+          {test.isPending ? "Thinking…" : "Try it"}
+        </button>
+        {test.data && <span className="num text-xs text-muted">{test.data.tokensPerSecond.toFixed(1)} tokens/s on this PC</span>}
+      </div>
+      {test.data && <p className="rounded-[8px] bg-raised p-3">Example: “{test.data.value.title}”{test.data.value.dueDate ? `, due ${test.data.value.dueDate}` : ""}</p>}
+      {(save.error ?? test.error) && <p className="text-negative">{errorMessage(save.error ?? test.error)}</p>}
+    </form>
+  );
+}
+
 function Startup() {
   const q = useQuery({ queryKey: ["tether", "autostart"], queryFn: api.autostart });
   const set = useAction((v: boolean) => api.setAutostart(v));
@@ -283,6 +328,10 @@ export function SettingsScreen() {
 
       <Row title="Backups" help="Copies of your database on this PC. Nothing is written until you back up or turn on daily backups.">
         <Backups />
+      </Row>
+
+      <Row title="Local AI" help="Optional. Uses Ollama on this PC; off unless you turn it on. Everything works without it.">
+        <LocalAi />
       </Row>
 
       <Row title="Startup" help="Off by default.">

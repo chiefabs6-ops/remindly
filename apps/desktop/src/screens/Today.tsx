@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useSearchParams, Link } from "react-router";
 import type { Task } from "@tether/core";
 import { DayStrip } from "../components/DayStrip";
@@ -7,6 +8,8 @@ import { TaskList } from "../components/TaskRow";
 import { errorMessage } from "../lib/api";
 import { ago, longDate } from "../lib/format";
 import { useDashboard, useProjects } from "../lib/queries";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/api";
 
 function Section({ title, count, tone, children }: { title: string; count: number; tone?: "late"; children: React.ReactNode }) {
   return (
@@ -29,6 +32,8 @@ export function TodayScreen() {
   const open = params.get("task");
   const openTask = (id: string | null) => setParams(id ? { task: id } : {}, { replace: true });
   const ps = projects.data ?? [];
+  const [showPlan, setShowPlan] = useState(false);
+  const plan = useQuery({ queryKey: ["tether", "plan"], queryFn: api.planDay, enabled: showPlan });
 
   if (dash.isError) {
     return (
@@ -70,6 +75,38 @@ export function TodayScreen() {
 
         <div className="mb-5">
           <QuickAdd projects={ps} onCreated={(id) => openTask(id)} />
+        </div>
+
+        <div className="mb-5">
+          {!showPlan ? (
+            <button className="btn" onClick={() => setShowPlan(true)}>Plan my day</button>
+          ) : (
+            <section className="rounded-[8px] border border-line bg-surface p-4" aria-labelledby="plan-h">
+              <div className="mb-2 flex items-baseline justify-between">
+                <h2 id="plan-h" className="font-medium">Plan for today</h2>
+                <button className="text-xs underline" onClick={() => setShowPlan(false)}>Hide</button>
+              </div>
+              {plan.data ? (
+                <>
+                  <p className="mb-2">{plan.data.summary}</p>
+                  {plan.data.items.length > 0 && (
+                    <ol className="list-decimal space-y-1 pl-5">
+                      {plan.data.items.map((i) => (
+                        <li key={i.task.id}>
+                          <button className="text-left hover:underline" onClick={() => openTask(i.task.id)}>{i.task.title}</button>
+                          <span className="text-muted"> — {i.reason}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </>
+              ) : plan.isError ? (
+                <p className="text-negative">{errorMessage(plan.error)}</p>
+              ) : (
+                <div className="h-12 rounded bg-active" aria-busy="true" />
+              )}
+            </section>
+          )}
         </div>
 
         <div className="mb-6 rounded-[8px] border border-line bg-surface px-4 pt-3 pb-2">
@@ -157,7 +194,7 @@ export function TodayScreen() {
       </div>
       {open && (
         <div className="w-[400px] flex-none border-l border-line bg-surface max-lg:fixed max-lg:inset-0 max-lg:z-20 max-lg:w-full">
-          <TaskPanel id={open} projects={ps} onClose={() => openTask(null)} onOpen={openTask} />
+          <TaskPanel key={open} id={open} projects={ps} onClose={() => openTask(null)} onOpen={openTask} />
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 //! Tether desktop core: owns the SQLite database, serves the local API, hosts the tray.
 
+pub mod ai;
 pub mod api;
 pub mod backup;
 pub mod commands;
@@ -223,6 +224,12 @@ pub fn run() {
             commands::export_json,
             commands::db_health,
             commands::reveal_path,
+            commands::ai_settings_get,
+            commands::ai_settings_set,
+            commands::ai_status,
+            commands::ai_extract,
+            commands::ai_breakdown,
+            commands::plan_day,
             commands::autostart_get,
             commands::autostart_set,
         ])

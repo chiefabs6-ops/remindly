@@ -471,3 +471,96 @@ pub fn reveal_path(app: tauri::AppHandle, s: Db, path: String) -> AppResult<()> 
         .spawn()?;
     Ok(())
 }
+
+// ---------- local AI (optional) ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiResult<T: Serialize> {
+    pub value: T,
+    /// Generation speed on this PC.
+    pub tokens_per_second: f64,
+}
+
+#[tauri::command(async)]
+pub fn ai_settings_get(s: Db) -> AppResult<crate::ai::AiSettings> {
+    s.db.read(crate::ai::AiSettings::load)
+}
+
+#[tauri::command(async)]
+pub fn ai_settings_set(s: Db, value: crate::ai::AiSettings) -> AppResult<crate::ai::AiSettings> {
+    value.validate()?;
+    s.db.write(|c| settings::set(c, crate::ai::SETTINGS_KEY, &serde_json::to_value(&value)?))?;
+    Ok(value)
+}
+
+#[tauri::command]
+pub async fn ai_status(s: Db<'_>) -> AppResult<crate::ai::AiStatus> {
+    let st = s.inner().clone();
+    off_runtime(move || Ok(crate::ai::status(&st.db.read(crate::ai::AiSettings::load)?))).await
+}
+
+/// Runs a model call on the blocking pool so the async runtime (which also serves the local API)
+/// is never tied up for the length of a generation.
+async fn off_runtime<T: Send + 'static>(
+    f: impl FnOnce() -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::Io(std::io::Error::other(e.to_string())))?
+}
+
+/// Suggest task fields for captured text (used in the Inbox review form; nothing is saved).
+#[tauri::command]
+pub async fn ai_extract(
+    s: Db<'_>,
+    text: String,
+    page_title: Option<String>,
+) -> AppResult<AiResult<crate::ai::Extracted>> {
+    let st = s.inner().clone();
+    off_runtime(move || {
+        let cfg = st.db.read(crate::ai::AiSettings::load)?;
+        let projects: Vec<String> = st
+            .db
+            .read(|c| projects::list(c, false))?
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let (value, tps) =
+            crate::ai::extract_task(&cfg, &text, page_title.as_deref(), &today, &projects)?;
+        Ok(AiResult {
+            value,
+            tokens_per_second: tps,
+        })
+    })
+    .await
+}
+
+/// Suggest subtasks for a task (the user picks which to add).
+#[tauri::command]
+pub async fn ai_breakdown(s: Db<'_>, id: String) -> AppResult<AiResult<Vec<String>>> {
+    let st = s.inner().clone();
+    off_runtime(move || {
+        let cfg = st.db.read(crate::ai::AiSettings::load)?;
+        let t = st.db.read(|c| tasks::get(c, &id))?;
+        let details = [
+            t.description.unwrap_or_default(),
+            t.notes.unwrap_or_default(),
+        ]
+        .join("\n");
+        let (value, tps) = crate::ai::break_down(&cfg, &t.title, &details)?;
+        Ok(AiResult {
+            value,
+            tokens_per_second: tps,
+        })
+    })
+    .await
+}
+
+/// "Plan my day": a rule-based order for today's work with reasons (no AI needed).
+#[tauri::command(async)]
+pub fn plan_day(s: Db) -> AppResult<crate::repo::plan::DayPlan> {
+    let d = s.db.read(|c| dashboard::build(c, &Clock::now()))?;
+    Ok(crate::repo::plan::plan(&d, 6))
+}
