@@ -2,6 +2,11 @@
 //! a token-protected localhost API, SQLite in WAL mode and actionable Windows toasts.
 //! Throwaway-quality code; findings go to docs/spike.md.
 
+pub mod db;
+pub mod error;
+pub mod model;
+pub mod repo;
+
 use std::{
     fs::OpenOptions,
     io::Write,
