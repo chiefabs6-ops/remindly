@@ -318,6 +318,9 @@ pub struct NewSuggestion {
     /// Client-chosen idempotency key: re-sending the same pending suggestion returns the original.
     #[serde(default)]
     pub dedupe_key: Option<String>,
+    /// When the user captured it (RFC 3339). Queued captures keep their real time.
+    #[serde(default)]
+    pub captured_at: Option<String>,
 }
 
 /// Payload of a `task` suggestion.

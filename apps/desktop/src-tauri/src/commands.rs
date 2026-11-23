@@ -222,10 +222,46 @@ pub struct ApiInfo {
 
 #[tauri::command(async)]
 pub fn api_info(s: Db) -> ApiInfo {
-    let t = s.token.as_str();
+    let token = s.token();
+    let t = token.as_str();
     ApiInfo {
         url: format!("http://127.0.0.1:{API_PORT}"),
         token_hint: t[t.len().saturating_sub(4)..].to_string(),
         data_dir: s.data_dir.display().to_string(),
     }
+}
+
+// ---------- browser pairing ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingCode {
+    pub code: String,
+    pub expires_in_secs: u64,
+}
+
+#[tauri::command(async)]
+pub fn pairing_start(s: Db) -> PairingCode {
+    PairingCode {
+        code: s.start_pairing(),
+        expires_in_secs: crate::state::PAIRING_TTL.as_secs(),
+    }
+}
+
+/// Extension origins allowed to call the API (the Tether extension has one fixed ID).
+#[tauri::command(async)]
+pub fn paired_browsers(s: Db) -> AppResult<Vec<String>> {
+    let v = s.db.read(|c| settings::get(c, ALLOWED_ORIGINS_KEY))?;
+    Ok(v.and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect())
+}
+
+/// Forget every paired browser and issue a new token.
+#[tauri::command(async)]
+pub fn unpair_all(s: Db) -> AppResult<()> {
+    s.db.write(|c| settings::set(c, ALLOWED_ORIGINS_KEY, &Value::Array(vec![])))?;
+    s.rotate_token()
 }

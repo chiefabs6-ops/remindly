@@ -29,7 +29,7 @@ export interface FoundDate {
 }
 
 // Words that only introduce a deadline ("before Friday") and should go with the date text.
-const LEAD_IN = /(?:\b(?:by|before|on|due|until|till|no later than)\s+)$/i;
+const LEAD_IN = /(?:\b(?:by|before|on|for|due|until|till|no later than)\s+)$/i;
 
 /**
  * Find the first date/time phrase in `text` (English), resolving to the future

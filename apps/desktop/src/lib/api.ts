@@ -94,6 +94,9 @@ export const api = {
   settings: () => call<Record<string, unknown>>("settings_get_all"),
   setSetting: (key: string, value: unknown) => call<void>("settings_set", { key, value }),
   apiInfo: () => call<ApiInfo>("api_info"),
+  startPairing: () => call<{ code: string; expiresInSecs: number }>("pairing_start"),
+  pairedBrowsers: () => call<string[]>("paired_browsers"),
+  unpairAll: () => call<void>("unpair_all"),
 };
 
 /** Subscribe to backend data changes (API writes). Returns an unsubscribe function. */

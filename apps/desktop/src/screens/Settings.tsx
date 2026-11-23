@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { useAction, useSettings } from "../lib/queries";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +12,59 @@ function Row({ title, help, children }: { title: string; help: string; children:
       </div>
       <div className="rounded-[8px] bg-surface p-4">{children}</div>
     </section>
+  );
+}
+
+function ChromePairing() {
+  const browsers = useQuery({ queryKey: ["tether", "paired"], queryFn: api.pairedBrowsers, refetchInterval: 3000 });
+  const [code, setCode] = useState<{ code: string; until: number } | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const start = useAction(() => api.startPairing());
+  const unpair = useAction(() => api.unpairAll());
+  const count = browsers.data?.length ?? 0;
+  const left = code ? Math.max(0, Math.round((code.until - now) / 1000)) : 0;
+
+  useEffect(() => {
+    if (!code) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [code]);
+  // Paired while a code is showing: the code was used (re-pairing keeps the count at 1, so
+  // compare against the moment the code was issued).
+  const [pairedAtStart, setPairedAtStart] = useState(false);
+  useEffect(() => {
+    if (code && count > 0 && !pairedAtStart) setCode(null);
+  }, [count, code, pairedAtStart]);
+
+  return (
+    <div className="space-y-3">
+      <p>
+        {count === 0 ? "Chrome is not paired yet." : "Chrome is paired."}
+      </p>
+      {code && left > 0 ? (
+        <div className="rounded-[8px] bg-raised p-3">
+          <p className="label">Type this code in the Tether extension</p>
+          <p className="num text-2xl font-semibold tracking-[0.2em]" aria-live="polite">{code.code}</p>
+          <p className="num text-xs text-muted">Expires in {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</p>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primary" disabled={start.isPending}
+          onClick={() => start.mutate(undefined, { onSuccess: (r) => { setPairedAtStart(count > 0); setNow(Date.now()); setCode({ code: r.code, until: Date.now() + r.expiresInSecs * 1000 }); } })}>
+          {code && left > 0 ? "New code" : "Pair Chrome"}
+        </button>
+        {count > 0 && (
+          <button className="btn btn-ghost btn-danger"
+            onClick={() => confirm("Unpair Chrome? Tether issues a new token, so the extension must be paired again.") && unpair.mutate(undefined)}>
+            Unpair all
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-muted">
+        Install: open chrome://extensions, turn on Developer mode, choose Load unpacked and pick the
+        apps\extension\dist folder. Then click the Tether icon and enter the code.
+      </p>
+    </div>
   );
 }
 
@@ -46,7 +99,10 @@ export function SettingsScreen() {
           <dt className="text-muted">Token</dt><dd className="num">•••• {info.data?.tokenHint ?? ""}</dd>
           <dt className="text-muted">Data folder</dt><dd className="break-all">{info.data?.dataDir ?? "—"}</dd>
         </dl>
-        <p className="mt-3 text-xs text-muted">Pairing the Chrome extension arrives in the next phase.</p>
+      </Row>
+
+      <Row title="Chrome" help="Right-click selected text on any page and choose Create Task. Captures wait in your Inbox until you approve them.">
+        <ChromePairing />
       </Row>
 
       <Row title="Keyboard" help="Capture and find things without the mouse.">

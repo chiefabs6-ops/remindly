@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import { captureKey, suggestFromSelection } from "./selection";
+
+const REF = new Date(2026, 10, 23, 10, 30); // Monday
+
+describe("suggestFromSelection", () => {
+  it("handles the Niamh example from the brief", () => {
+    const s = suggestFromSelection(
+      "Follow up with Niamh about the updated SEPI teacher list before Friday.",
+      { url: "https://mail.google.com/mail/u/0/#inbox/1", title: "Inbox" },
+      REF,
+    );
+    expect(s.payload.title).toBe("Follow up with Niamh");
+    expect(s.payload.description).toBe("The updated SEPI teacher list");
+    expect(s.payload.dueDate).toBe("2026-11-27");
+    expect(s.confidence.dueDate).toBeLessThan(0.8);
+    expect(s.payload.sourceUrl).toBe("https://mail.google.com/mail/u/0/#inbox/1");
+    expect(s.payload.sourceSelection).toContain("SEPI");
+  });
+
+  it("drops polite lead-ins and trailing punctuation", () => {
+    const s = suggestFromSelection("Please can you send the invoice tomorrow!", {}, REF);
+    expect(s.payload.title).toBe("Send the invoice");
+    expect(s.payload.dueDate).toBe("2026-11-24");
+  });
+
+  it("keeps text without a date or splitter as the title", () => {
+    const s = suggestFromSelection("Update the onboarding checklist", {}, REF);
+    expect(s.payload).toMatchObject({ title: "Update the onboarding checklist", description: null, dueDate: null });
+    expect(s.confidence).toEqual({});
+  });
+
+  it("clips long text and keeps the full text in the description", () => {
+    const long = "Review the proposal for the new learning management integration and check every section against the procurement rules";
+    const s = suggestFromSelection(long, {}, REF);
+    expect(s.payload.title.length).toBeLessThanOrEqual(81);
+    expect(s.payload.title.endsWith("…")).toBe(true);
+    expect(s.payload.description).toContain("procurement rules");
+  });
+
+  it("uses the first sentence for the title and keeps the rest", () => {
+    const s = suggestFromSelection("Book the room for Thursday. We need space for twelve people.", {}, REF);
+    expect(s.payload.title).toBe("Book the room");
+    expect(s.payload.description).toContain("twelve people");
+    expect(s.payload.dueDate).toBe("2026-11-26");
+  });
+
+  it("refuses non-web source links", () => {
+    const s = suggestFromSelection("x y", { url: "chrome://extensions" }, REF);
+    expect(s.payload.sourceUrl).toBeNull();
+  });
+});
+
+describe("captureKey", () => {
+  it("is stable and whitespace-insensitive", async () => {
+    const a = await captureKey("https://a.test", "Call  Niamh\n");
+    const b = await captureKey("https://a.test", "Call Niamh");
+    const c = await captureKey("https://b.test", "Call Niamh");
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+    expect(a).toMatch(/^chrome:[0-9a-f]{32}$/);
+  });
+});
