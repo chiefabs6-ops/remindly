@@ -470,7 +470,24 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tower::ServiceExt;
 
-    fn setup() -> (Router, String, Arc<AtomicUsize>, std::path::PathBuf) {
+    /// Test data folder: on drop it releases the pairing slot's copy of the database and
+    /// deletes the folder (the router must be dropped first; see `done`).
+    struct TempDir(std::path::PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            PAIR_APP.with(|p| p.borrow_mut().take());
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// End of a test: close the router (and its database) before the folder is deleted.
+    fn done(r: Router, dir: TempDir) {
+        drop(r);
+        drop(dir);
+    }
+
+    fn setup() -> (Router, String, Arc<AtomicUsize>, TempDir) {
         let dir = std::env::temp_dir().join(format!("tether-api-{}", ulid::Ulid::generate()));
         let app = AppState::open(&dir).unwrap();
         let token = app.token();
@@ -485,7 +502,7 @@ mod tests {
             }),
             on_open: Arc::new(|| {}),
         });
-        (r, token, changes, dir)
+        (r, token, changes, TempDir(dir))
     }
 
     thread_local! {
@@ -555,7 +572,7 @@ mod tests {
             r.clone().oneshot(bad_host).await.unwrap().status(),
             StatusCode::FORBIDDEN
         );
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[test]
@@ -611,7 +628,8 @@ mod tests {
         assert_eq!(send(&r, list()).await.0, StatusCode::OK);
         // Single use.
         assert_eq!(send(&r, pair(&code, EXT)).await.0, StatusCode::BAD_REQUEST);
-        let _ = std::fs::remove_dir_all(dir);
+        drop(app);
+        done(r, dir);
     }
 
     fn req(method: &str, uri: &str) -> axum::http::request::Builder {
@@ -654,7 +672,7 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(send(&r, rebinding).await.0, StatusCode::FORBIDDEN);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -672,7 +690,7 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(send(&r, ok).await.0, StatusCode::OK);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -685,7 +703,7 @@ mod tests {
             .body(Body::from(suggestion_body()))
             .unwrap();
         assert_eq!(send(&r, res).await.0, StatusCode::FORBIDDEN);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -712,7 +730,7 @@ mod tests {
             .unwrap();
         let (_, body) = send(&r, list).await;
         assert_eq!(body.as_array().unwrap().len(), 1);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     fn meeting_body(n: usize) -> String {
@@ -765,7 +783,7 @@ mod tests {
         let (s, out) = send(&r, save).await;
         assert_eq!(s, StatusCode::OK, "{out}");
         assert_eq!(out["suggestions"], 1);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -777,7 +795,7 @@ mod tests {
             .body(Body::from(meeting_body(6000)))
             .unwrap();
         assert_eq!(send(&r, res).await.0, StatusCode::PAYLOAD_TOO_LARGE);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -793,7 +811,7 @@ mod tests {
         let (s, body) = send(&r, res).await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
         assert_eq!(body["code"], "invalid");
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -804,6 +822,6 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(send(&r, res).await.0, StatusCode::NOT_FOUND);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 }

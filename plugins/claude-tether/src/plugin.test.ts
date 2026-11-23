@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -43,9 +43,20 @@ describe("project detection", () => {
   });
 });
 
+// Temp folders made by these tests; removed when the file finishes.
+const tmpDirs: string[] = [];
+async function tempDir(prefix: string): Promise<string> {
+  const d = await mkdtemp(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+}
+afterAll(async () => {
+  await Promise.all(tmpDirs.map((d) => rm(d, { recursive: true, force: true })));
+});
+
 describe("suggest()", () => {
   it("spools to disk when Tether is not reachable", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tether-plugin-"));
+    const dir = await tempDir("tether-plugin-");
     process.env.TETHER_DATA_DIR = dir;
     process.env.TETHER_API = "http://127.0.0.1:9"; // nothing listens on the discard port
     await writeFile(join(dir, "token"), "t".repeat(64));
@@ -71,7 +82,7 @@ describe("meetings API client", () => {
   let srv: Server;
 
   beforeAll(async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tether-plugin-meet-"));
+    const dir = await tempDir("tether-plugin-meet-");
     await writeFile(join(dir, "token"), "k".repeat(64));
     srv = createServer((req, res) => {
       let body = "";
