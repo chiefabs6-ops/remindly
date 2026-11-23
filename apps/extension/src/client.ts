@@ -45,7 +45,8 @@ export class TetherClient {
 
   constructor(
     private storage: Storage,
-    private fetchFn: typeof fetch = fetch,
+    // Wrapped: calling the native fetch as a method of this object throws "Illegal invocation" in Chrome.
+    private fetchFn: typeof fetch = (input, init) => fetch(input, init),
   ) {}
 
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {

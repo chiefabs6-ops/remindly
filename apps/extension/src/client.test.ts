@@ -175,3 +175,21 @@ describe("TetherClient", () => {
     expect(r[0].title).toBe("T11");
   });
 });
+
+describe("default fetch", () => {
+  it("calls the global fetch unbound (Chrome throws 'Illegal invocation' otherwise)", async () => {
+    const original = globalThis.fetch;
+    let self: unknown = "unset";
+    globalThis.fetch = function (this: unknown) {
+      self = this;
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    } as typeof fetch;
+    try {
+      const c = new TetherClient(memory());
+      expect(await c.health()).toBe(true);
+      expect(self === undefined || self === globalThis).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
