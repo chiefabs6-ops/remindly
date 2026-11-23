@@ -123,5 +123,12 @@ $("unpair").addEventListener("click", async () => {
   render();
 });
 
+$<HTMLInputElement>("meet-offer").addEventListener("change", async (e) => {
+  const input = e.target as HTMLInputElement;
+  const r = await send<{ on: boolean }>({ type: "meetOffer:set", on: input.checked });
+  input.checked = r.on;
+});
+send<{ on: boolean }>({ type: "meetOffer:get" }).then((r) => ($<HTMLInputElement>("meet-offer").checked = r.on));
+
 render();
 $("quick")?.focus();

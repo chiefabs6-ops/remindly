@@ -8,6 +8,9 @@
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Tether" },
   "permissions": ["contextMenus", "activeTab", "scripting", "storage", "alarms"],
-  "host_permissions": ["http://127.0.0.1/*"],
+  "host_permissions": ["http://127.0.0.1/*", "https://meet.google.com/*"],
+  "content_scripts": [
+    { "matches": ["https://meet.google.com/*"], "js": ["meet.js"], "run_at": "document_idle" }
+  ],
   "icons": { "32": "icon-32.png", "128": "icon-128.png" }
 }

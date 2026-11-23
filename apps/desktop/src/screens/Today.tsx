@@ -9,7 +9,7 @@ import { TaskList } from "../components/TaskRow";
 import { api, errorMessage } from "../lib/api";
 import { ago, dueLabel, longDate } from "../lib/format";
 import { useDashboard, useProjects, useSuggestions } from "../lib/queries";
-import { ORIGIN, Review, UpdateReview, suggestionTitle } from "./Inbox";
+import { Review, UpdateReview, originLabel, suggestionTitle } from "./Inbox";
 
 type View = "today" | "fortnight";
 
@@ -80,7 +80,7 @@ function Rail({ onOpenTask, selectedSuggestion, onSelectSuggestion }: {
                     <span className="flex-none text-xs text-muted">{ago(s.createdAt)}</span>
                   </span>
                   <span className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
-                    {ORIGIN[s.origin]}
+                    {originLabel(s)}
                     {(s.payload as { dueDate?: string | null }).dueDate && (
                       <span>· due {dueLabel({ dueDate: (s.payload as { dueDate?: string | null }).dueDate ?? null, dueTime: null })}</span>
                     )}

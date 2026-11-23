@@ -5,6 +5,7 @@ import type {
   ApiInfo,
   AppError,
   Dashboard,
+  Meeting,
   Note,
   NoteFilter,
   NoteInput,
@@ -158,6 +159,8 @@ export const api = {
   updateNote: (id: string, input: NoteInput) => call<Note>("note_update", { id, input }),
   deleteNote: (id: string) => call<void>("note_delete", { id }),
   convertNote: (id: string) => call<Task[]>("note_convert_to_tasks", { id }),
+  meetingForNote: (noteId: string) => call<Meeting | null>("meeting_for_note", { noteId }),
+  meetingResummarise: (id: string) => call<Meeting>("meeting_resummarise", { id }),
 
   suggestions: (status: SuggestionStatus | null) => call<Suggestion[]>("suggestions_list", { status }),
   approveSuggestion: (id: string, edited?: unknown) =>

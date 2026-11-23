@@ -6,6 +6,7 @@ pub mod backup;
 pub mod commands;
 pub mod db;
 pub mod error;
+pub mod meeting_worker;
 pub mod model;
 pub mod reminders;
 pub mod repo;
@@ -159,6 +160,10 @@ pub fn run() {
                 app.handle().clone(),
                 app.state::<AppState>().inner().clone(),
             );
+            meeting_worker::start(
+                app.handle().clone(),
+                app.state::<AppState>().inner().clone(),
+            );
 
             build_tray(app)?;
 
@@ -200,6 +205,8 @@ pub fn run() {
             commands::note_update,
             commands::note_delete,
             commands::note_convert_to_tasks,
+            commands::meeting_for_note,
+            commands::meeting_resummarise,
             commands::suggestions_list,
             commands::suggestion_approve,
             commands::suggestion_dismiss,

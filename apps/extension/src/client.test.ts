@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { TetherClient, type Storage, type SuggestionBody } from "./client";
+import { TetherClient, mergeSegments, type MeetingBody, type Storage, type SuggestionBody } from "./client";
 
 function memory(): Storage & { data: Record<string, unknown> } {
   const data: Record<string, unknown> = {};
@@ -173,6 +173,104 @@ describe("TetherClient", () => {
     const r = await c.recent();
     expect(r).toHaveLength(10);
     expect(r[0].title).toBe("T11");
+  });
+});
+
+const meeting = (key: string, title: string | null = "Weekly sync"): MeetingBody => ({
+  dedupeKey: `meet:${key}`,
+  meetCode: "abc-defg-hij",
+  title,
+  startedAt: "2026-11-23T10:00:00.000Z",
+  endedAt: "2026-11-23T10:30:00.000Z",
+  segments: [{ speaker: "You", text: "I'll send the report Friday", at: "2026-11-23T10:02:00.000Z" }],
+});
+
+describe("meetings", () => {
+  let store: ReturnType<typeof memory>;
+  beforeEach(async () => {
+    store = memory();
+    await store.set("token", "abc");
+  });
+
+  it("posts to /v1/meetings with the bearer token and remembers it", async () => {
+    const f = fakeFetch(() => json(201, { id: "m1" }));
+    const c = new TetherClient(store, f.fn);
+    expect(await c.captureMeeting(meeting("a"))).toBe("sent");
+    expect(f.calls[0].url).toMatch(/\/v1\/meetings$/);
+    expect((f.calls[0].init?.headers as Record<string, string>).Authorization).toBe("Bearer abc");
+    expect((await c.recent())[0]).toMatchObject({ title: "Meeting: Weekly sync", state: "sent" });
+  });
+
+  it("titles a meeting by its code when it has no title", async () => {
+    const c = new TetherClient(store, fakeFetch(() => json(201, {})).fn);
+    await c.captureMeeting(meeting("a", null));
+    expect((await c.recent())[0].title).toBe("Meeting: abc-defg-hij");
+  });
+
+  it("queues offline in meetQueue (not the suggestion queue), deduped, max 20", async () => {
+    const c = new TetherClient(store, fakeFetch(offline).fn);
+    expect(await c.captureMeeting(meeting("a"))).toBe("queued");
+    expect(await c.captureMeeting(meeting("a"))).toBe("queued");
+    expect(await c.meetQueue()).toHaveLength(1);
+    expect(await c.queue()).toEqual([]);
+    for (let i = 0; i < 25; i++) await c.captureMeeting(meeting(`k${i}`));
+    const q = await c.meetQueue();
+    expect(q).toHaveLength(20);
+    expect(q[19].body.dedupeKey).toBe("meet:k24");
+  });
+
+  it("queues when not paired", async () => {
+    const s2 = memory();
+    const c = new TetherClient(s2, fakeFetch(() => json(201, {})).fn);
+    expect(await c.captureMeeting(meeting("a"))).toBe("queued");
+  });
+
+  it("flush sends suggestions then meetings; offline keeps meetings; 4xx drops", async () => {
+    await store.set("queue", [{ body: body("s1"), addedAt: "", attempts: 1 }]);
+    await store.set("meetQueue", [
+      { body: meeting("bad"), addedAt: "", attempts: 1 },
+      { body: meeting("ok"), addedAt: "", attempts: 1 },
+    ]);
+    const order: string[] = [];
+    let up = false;
+    const f = fakeFetch((url, init) => {
+      if (!up) return offline(url, init);
+      const k = JSON.parse(String(init?.body)).dedupeKey as string;
+      order.push(k);
+      return k === "meet:bad" ? json(400, { message: "no" }) : json(201, {});
+    });
+    const c = new TetherClient(store, f.fn);
+    expect(await c.flush()).toEqual({ sent: 0, left: 3, dropped: 0 });
+    expect(await c.meetQueue()).toHaveLength(2);
+    up = true;
+    expect(await c.flush()).toEqual({ sent: 2, left: 0, dropped: 1 });
+    expect(order).toEqual(["s1", "meet:bad", "meet:ok"]);
+    expect(await c.meetQueue()).toEqual([]);
+    expect((await c.recent()).find((r) => r.key === "meet:bad")?.state).toBe("rejected");
+  });
+
+  it("a 401 keeps the meeting and asks to pair again", async () => {
+    const c = new TetherClient(store, fakeFetch(() => json(401, {})).fn);
+    expect(await c.captureMeeting(meeting("a"))).toBe("queued");
+    expect(await c.token()).toBeUndefined();
+    expect(await c.needsRepair()).toBe(true);
+    expect(await c.meetQueue()).toHaveLength(1);
+  });
+
+  it("a rejected meeting returns the error and is not queued", async () => {
+    const c = new TetherClient(store, fakeFetch(() => json(400, { message: "too many segments" })).fn);
+    expect(await c.captureMeeting(meeting("a"))).toEqual({ error: "too many segments" });
+    expect(await c.meetQueue()).toEqual([]);
+  });
+});
+
+describe("mergeSegments", () => {
+  const seg = (id: string, at: string, text = id) => ({ id, speaker: "You", text, at });
+  it("upserts by id, sorts by time and caps (keeps newest)", () => {
+    const merged = mergeSegments([seg("b", "2"), seg("a", "1", "old")], [seg("a", "1", "new"), seg("c", "3")]);
+    expect(merged.map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(merged[0].text).toBe("new");
+    expect(mergeSegments(merged, [], 2).map((s) => s.id)).toEqual(["b", "c"]);
   });
 });
 

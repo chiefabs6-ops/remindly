@@ -7,6 +7,7 @@ import {
   isoDate,
   isoTime,
   type Dashboard,
+  type Meeting,
   type Note,
   type NoteFilter,
   type NoteInput,
@@ -29,6 +30,7 @@ interface Store {
   tasks: Task[];
   projects: Project[];
   notes: Note[];
+  meetings: Meeting[];
   suggestions: Suggestion[];
   settings: Record<string, unknown>;
 }
@@ -193,7 +195,53 @@ export function sampleStore(): Store {
       tags: ["writing"],
     },
   ];
-  return { tasks, projects: [edu, admin, personal], notes, suggestions, settings: { onboarded: true } };
+  const meetingNote: Note = {
+    id: id(),
+    projectId: null,
+    taskId: null,
+    title: "Weekly sync",
+    bodyMd: [
+      "## Summary",
+      "The team agreed to ship the profile page next week. Sarah will check the Irish translations.",
+      "",
+      "## Decisions",
+      "- Ship the profile page next week",
+      "",
+      "## Action items",
+      "- [ ] Send the report on Friday",
+      "- (Sarah) Check the Irish translations",
+      "",
+      "## Transcript",
+      "**You** · 10:02",
+      "I'll send the report Friday.",
+      "",
+      "**Sarah** · 10:03",
+      "I'll check the Irish translations.",
+    ].join("\n"),
+    kind: "meeting",
+    source: "chrome",
+    sourceUrl: "https://meet.google.com/abc-defg-hij",
+    createdAt: now(),
+    updatedAt: now(),
+    deletedAt: null,
+    tags: [],
+  };
+  notes.unshift(meetingNote);
+  const meetings: Meeting[] = [
+    {
+      id: id(),
+      noteId: meetingNote.id,
+      meetCode: "abc-defg-hij",
+      title: "Weekly sync",
+      startedAt: new Date(Date.now() - 45 * 60_000).toISOString(),
+      endedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      summaryStatus: "done",
+      summaryError: null,
+      segmentCount: 2,
+      suggestionCount: 1,
+    },
+  ];
+  return { tasks, projects: [edu, admin, personal], notes, meetings, suggestions, settings: { onboarded: true } };
 }
 
 let store: Store = sampleStore();
@@ -453,6 +501,13 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const created = titles.map((title) => task({ title, projectId: n.projectId, noteId: n.id, source: "note" }));
     store.tasks.push(...created);
     return created;
+  },
+  meeting_for_note: ({ noteId }) => store.meetings.find((m) => m.noteId === noteId) ?? null,
+  meeting_resummarise: ({ id: mid }) => {
+    const m = store.meetings.find((x) => x.id === mid);
+    if (!m) return err("not_found", "meeting not found");
+    Object.assign(m, { summaryStatus: "pending", summaryError: null });
+    return m;
   },
   suggestions_list: ({ status }) => store.suggestions.filter((s) => !status || s.status === status),
   suggestion_approve: ({ id: sid, edited }) => {

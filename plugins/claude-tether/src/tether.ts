@@ -58,6 +58,35 @@ export async function call<T>(
   return data as T;
 }
 
+export interface MeetingDetail {
+  id: string;
+  noteId: string | null;
+  title: string | null;
+  startedAt: string;
+  endedAt: string;
+  summaryStatus: string;
+  transcript: string;
+}
+
+export interface MeetingSummaryInput {
+  summary: string;
+  decisions: string[];
+  actionItems: { title: string; dueDate: string | null; quote: string | null }[];
+}
+
+export function getMeeting(id: string): Promise<MeetingDetail> {
+  // Transcripts can be large; allow more time than a normal call.
+  return call<MeetingDetail>(`/v1/meetings/${encodeURIComponent(id)}`, { timeoutMs: 15000 });
+}
+
+export function saveMeetingSummary(id: string, body: MeetingSummaryInput): Promise<{ ok: boolean; suggestions: number }> {
+  return call<{ ok: boolean; suggestions: number }>(`/v1/meetings/${encodeURIComponent(id)}/summary`, {
+    method: "POST",
+    body,
+    timeoutMs: 15000,
+  });
+}
+
 export interface NewSuggestion {
   kind: "task" | "task_update" | "note";
   origin: "claude";

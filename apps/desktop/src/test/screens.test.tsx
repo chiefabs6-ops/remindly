@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
-import { mockInvoke, resetMock } from "../lib/mock";
+import { mockInvoke, resetMock, sampleStore } from "../lib/mock";
 import { setBackend } from "../lib/api";
 import { queryClient } from "../lib/queries";
 import { todayIso } from "../lib/format";
@@ -307,5 +307,49 @@ describe("Task page", () => {
     window.location.hash = `#/tasks?task=${t.id}`;
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "Book car service" })).toBeInTheDocument();
+  });
+});
+
+describe("Meeting notes", () => {
+  async function openMeetingNote(user: ReturnType<typeof userEvent.setup>) {
+    window.location.hash = "#/notes";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /Weekly sync/ }));
+    return screen.findByLabelText("Meeting summary");
+  }
+
+  it("shows the summary status row for a meeting note", async () => {
+    const user = userEvent.setup();
+    const bar = await openMeetingNote(user);
+    expect(within(bar).getByText(/Summarised/)).toBeInTheDocument();
+    expect(within(bar).getByRole("link", { name: "1 action items in approvals" })).toHaveAttribute("href", expect.stringContaining("approvals=1"));
+    expect(within(bar).getByText(/2 lines/)).toBeInTheDocument();
+  });
+
+  it("Try again asks for a new summary", async () => {
+    const user = userEvent.setup();
+    const store = sampleStore();
+    store.meetings[0] = { ...store.meetings[0], summaryStatus: "failed", summaryError: "Ollama is not running" };
+    resetMock(store);
+    const bar = await openMeetingNote(user);
+    expect(within(bar).getByText("Summary failed: Ollama is not running")).toBeInTheDocument();
+    await user.click(within(bar).getByRole("button", { name: "Try again" }));
+    await waitFor(async () => {
+      const m = await mockInvoke<{ summaryStatus: string } | null>("meeting_for_note", { noteId: store.meetings[0].noteId });
+      expect(m?.summaryStatus).toBe("pending");
+    });
+    expect(await screen.findByText(/Summary on the way/)).toBeInTheDocument();
+  });
+
+  it("copies the Claude Code command", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const store = sampleStore();
+    resetMock(store);
+    const bar = await openMeetingNote(user);
+    await user.click(within(bar).getByRole("button", { name: "Summarise with Claude Code" }));
+    expect(writeText).toHaveBeenCalledWith(`/tether:meeting ${store.meetings[0].id}`);
+    expect(await within(bar).findByText(/Copied — paste it in Claude Code/)).toBeInTheDocument();
   });
 });
