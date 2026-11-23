@@ -248,14 +248,14 @@ function LocalAi() {
     if (cfg.data) setA(cfg.data);
   }, [cfg.data]);
   const save = useAction((v: AiSettings) => api.setAiSettings(v));
-  const test = useAction(() => api.aiSummary());
+  const test = useAction(() => api.aiExtract("Please send the updated teacher list to the programme lead before Friday", null));
   if (!a) return <div className="h-24 rounded-[8px] bg-active" aria-busy="true" />;
   const dirty = JSON.stringify(a) !== JSON.stringify(cfg.data);
   const st = status.data;
   return (
     <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); save.mutate(a, { onSuccess: () => status.refetch() }); }}>
       <Toggle id="ai-on" label="Use local AI" checked={a.enabled} onChange={(v) => setA({ ...a, enabled: v })}
-        hint="Adds “Suggest with AI”, “Break into steps” and “Plan my day”. Results are suggestions you confirm. Text never leaves this PC." />
+        hint="Adds “Suggest with AI” and “Break into steps”. Results are suggestions you confirm. Text never leaves this PC. A small model (qwen2.5:1.5b, about 1 GB, loaded only while working) is enough." />
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label" htmlFor="ai-model">Model</label>
@@ -279,7 +279,7 @@ function LocalAi() {
         </button>
         {test.data && <span className="num text-xs text-muted">{test.data.tokensPerSecond.toFixed(1)} tokens/s on this PC</span>}
       </div>
-      {test.data && <p className="rounded-[8px] bg-raised p-3">{test.data.value}</p>}
+      {test.data && <p className="rounded-[8px] bg-raised p-3">Example: “{test.data.value.title}”{test.data.value.dueDate ? `, due ${test.data.value.dueDate}` : ""}</p>}
       {(save.error ?? test.error) && <p className="text-negative">{errorMessage(save.error ?? test.error)}</p>}
     </form>
   );

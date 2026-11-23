@@ -558,52 +558,9 @@ pub async fn ai_breakdown(s: Db<'_>, id: String) -> AppResult<AiResult<Vec<Strin
     .await
 }
 
-/// A short plan for today from the dashboard's titles and dates.
-#[tauri::command]
-pub async fn ai_summary(s: Db<'_>) -> AppResult<AiResult<String>> {
-    let st = s.inner().clone();
-    off_runtime(move || {
-        let cfg = st.db.read(crate::ai::AiSettings::load)?;
-        let d = st.db.read(|c| dashboard::build(c, &Clock::now()))?;
-        let line = |t: &Task| {
-            let due = t
-                .due_date
-                .as_ref()
-                .map(|d| {
-                    let tm = t
-                        .due_time
-                        .as_ref()
-                        .map(|x| format!(" {x}"))
-                        .unwrap_or_default();
-                    format!(" (due {d}{tm})")
-                })
-                .unwrap_or_default();
-            let hi = if t.priority >= 3 {
-                " [high priority]"
-            } else {
-                ""
-            };
-            format!("- {}{due}{hi}", t.title)
-        };
-        let mut facts = format!("Today is {}.\n", d.today);
-        for (name, list) in [
-            ("Overdue", &d.overdue),
-            ("Due today", &d.due_today),
-            ("Carried over", &d.carried_over),
-            ("Due in the next 3 days", &d.due_soon),
-        ] {
-            facts.push_str(&format!("{name} ({}):\n", list.len()));
-            for t in list.iter().take(12) {
-                facts.push_str(&line(t));
-                facts.push('\n');
-            }
-        }
-        facts.push_str(&format!("Done today: {}\n", d.completed_today.len()));
-        let (value, tps) = crate::ai::summarise(&cfg, &facts)?;
-        Ok(AiResult {
-            value,
-            tokens_per_second: tps,
-        })
-    })
-    .await
+/// "Plan my day": a rule-based order for today's work with reasons (no AI needed).
+#[tauri::command(async)]
+pub fn plan_day(s: Db) -> AppResult<crate::repo::plan::DayPlan> {
+    let d = s.db.read(|c| dashboard::build(c, &Clock::now()))?;
+    Ok(crate::repo::plan::plan(&d, 6))
 }

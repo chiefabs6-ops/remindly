@@ -4,6 +4,7 @@ pub mod code_projects;
 pub mod dashboard;
 pub mod history;
 pub mod notes;
+pub mod plan;
 pub mod projects;
 pub mod search;
 pub mod settings;

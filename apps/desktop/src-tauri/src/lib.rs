@@ -229,7 +229,7 @@ pub fn run() {
             commands::ai_status,
             commands::ai_extract,
             commands::ai_breakdown,
-            commands::ai_summary,
+            commands::plan_day,
             commands::autostart_get,
             commands::autostart_set,
         ])

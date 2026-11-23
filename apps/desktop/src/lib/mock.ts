@@ -532,7 +532,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
   export_json: () => String.raw`C:\Users\you\Documents\Tether\Exports\tether-export.json`,
   db_health: () => "ok",
   reveal_path: () => undefined,
-  ai_settings_get: () => (store.settings.ai as object | undefined) ?? { enabled: false, url: "http://127.0.0.1:11434", model: "qwen2.5:3b" },
+  ai_settings_get: () => (store.settings.ai as object | undefined) ?? { enabled: false, url: "http://127.0.0.1:11434", model: "qwen2.5:1.5b" },
   ai_settings_set: ({ value }) => {
     store.settings.ai = value;
     return value;
@@ -540,7 +540,11 @@ const handlers: Record<string, (a: Args) => unknown> = {
   ai_status: () => ({ enabled: !!(store.settings.ai as { enabled?: boolean } | undefined)?.enabled, reachable: false, version: null, models: [], modelInstalled: false }),
   ai_extract: () => err("invalid", "Ollama is not running on this PC. Start Ollama and try again."),
   ai_breakdown: () => ({ value: ["Fix validation errors", "Test Irish translations", "Check the full profile flow"], tokensPerSecond: 9.8 }),
-  ai_summary: () => ({ value: "One task is overdue; start with the teacher list, then the expense claims.", tokensPerSecond: 9.8 }),
+  plan_day: () => {
+    const d = dashboard();
+    const items = [...d.overdue.map((task) => ({ task, reason: "overdue" })), ...d.dueToday.map((task) => ({ task, reason: task.dueTime ? `due at ${task.dueTime}` : "due today" }))].slice(0, 6);
+    return { summary: items.length ? `${d.overdue.length} overdue, ${d.dueToday.length} for today. Start with “${items[0].task.title}” (${items[0].reason}).` : "Nothing is due or overdue today.", items };
+  },
   api_info: () => ({ url: "http://127.0.0.1:47821", tokenHint: "3f9a", dataDir: "%APPDATA%\\ie.tether.app" }),
 };
 

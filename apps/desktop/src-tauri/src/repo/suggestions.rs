@@ -163,6 +163,12 @@ fn check_update(u: &SuggestedUpdate) -> AppResult<()> {
     if u.priority.is_some_and(|p| p > 3) {
         return Err(AppError::invalid("priority must be 0-3"));
     }
+    if u.add_subtasks.len() > 15 {
+        return Err(AppError::invalid("at most 15 subtasks at once"));
+    }
+    for st in &u.add_subtasks {
+        clean_title(st)?;
+    }
     if u.append_note.as_ref().is_some_and(|n| n.len() > 20_000) {
         return Err(AppError::invalid("appendNote is too long"));
     }
@@ -171,7 +177,8 @@ fn check_update(u: &SuggestedUpdate) -> AppResult<()> {
         && u.due_date.is_none()
         && u.due_time.is_none()
         && u.priority.is_none()
-        && u.append_note.as_deref().is_none_or(|n| n.trim().is_empty());
+        && u.append_note.as_deref().is_none_or(|n| n.trim().is_empty())
+        && u.add_subtasks.is_empty();
     if empty {
         return Err(AppError::invalid("task_update changes nothing"));
     }
@@ -494,6 +501,18 @@ fn apply_update(conn: &Connection, id: &str, u: &SuggestedUpdate, actor: Actor) 
         });
     }
     tasks::update(conn, id, &input, actor)?;
+    for title in &u.add_subtasks {
+        let sub = TaskInput {
+            title: title.clone(),
+            ..Default::default()
+        };
+        let origin = TaskOrigin {
+            parent_id: Some(id.to_string()),
+            source: Some(crate::model::Source::Claude),
+            ..Default::default()
+        };
+        tasks::create(conn, &sub, &origin, actor)?;
+    }
     if let Some(status) = u.status {
         tasks::set_status(conn, id, status, false, actor)?;
     }
@@ -796,6 +815,42 @@ mod tests {
             ..s
         };
         assert!(db.write(|c| create(c, &bogus)).is_err());
+    }
+
+    #[test]
+    fn approved_breakdown_adds_subtasks() {
+        let db = db();
+        let t = db
+            .write(|c| {
+                tasks::create(
+                    c,
+                    &TaskInput {
+                        title: "Finish profile".into(),
+                        ..Default::default()
+                    },
+                    &TaskOrigin::default(),
+                    Actor::User,
+                )
+            })
+            .unwrap();
+        let s = NewSuggestion {
+            kind: SuggestionKind::TaskUpdate,
+            origin: Origin::Claude,
+            target_task_id: Some(t.id.clone()),
+            payload: json!({ "addSubtasks": ["Fix validation", "Test Irish translations"] }),
+            context: None,
+            confidence: None,
+            dedupe_key: None,
+            captured_at: None,
+        };
+        let s = db.write(|c| create(c, &s)).unwrap();
+        assert_eq!(
+            db.read(|c| tasks::get(c, &t.id)).unwrap().subtask_count,
+            0,
+            "nothing before approval"
+        );
+        db.write(|c| approve(c, &s.id, None)).unwrap();
+        assert_eq!(db.read(|c| tasks::get(c, &t.id)).unwrap().subtask_count, 2);
     }
 
     #[test]

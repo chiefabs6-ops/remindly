@@ -22,6 +22,7 @@ type UpdatePayload = {
   dueTime?: string | null;
   priority?: number;
   appendNote?: string;
+  addSubtasks?: string[];
 };
 
 const PRI = ["None", "Low", "Medium", "High"];
@@ -67,6 +68,12 @@ function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void }) {
                 ))}
               </tbody>
             </table>
+          )}
+          {p.addSubtasks && p.addSubtasks.length > 0 && (
+            <div className="mb-4 rounded-[8px] bg-raised p-3">
+              <p className="label">Subtasks to add</p>
+              <ul className="list-disc pl-5">{p.addSubtasks.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            </div>
           )}
           {p.appendNote && (
             <div className="rounded-[8px] bg-raised p-3">

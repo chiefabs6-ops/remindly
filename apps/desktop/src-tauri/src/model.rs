@@ -361,6 +361,9 @@ pub struct SuggestedUpdate {
     /// Progress note appended to the task's notes.
     #[serde(default)]
     pub append_note: Option<String>,
+    /// Subtasks to create under the task (e.g. a breakdown from Claude Code).
+    #[serde(default)]
+    pub add_subtasks: Vec<String>,
 }
 
 fn some_or_null<'de, D: serde::Deserializer<'de>>(

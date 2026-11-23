@@ -134,11 +134,16 @@ describe("Settings backups", () => {
 });
 
 describe("Local AI", () => {
-  it("is hidden while off", async () => {
-    window.location.hash = "#/";
+  it("AI buttons are hidden while off; Plan my day works without AI", async () => {
+    const user = userEvent.setup();
+    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
+    window.location.hash = `#/?task=${t.id}`;
     render(<App />);
     await screen.findByRole("heading", { level: 1, name: "Today" });
-    expect(screen.queryByRole("button", { name: /Plan my day/ })).toBeNull();
+    expect(await screen.findByLabelText("Title")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /with AI/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Plan my day" }));
+    expect(await screen.findByText(/Start with/)).toBeInTheDocument();
   });
 
   it("when on, breaks a task into chosen subtasks", async () => {

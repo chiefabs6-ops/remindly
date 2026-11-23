@@ -89,6 +89,11 @@ export interface Extracted {
   projectName?: string | null;
 }
 
+export interface DayPlan {
+  summary: string;
+  items: { task: import("@tether/core").Task; reason: string }[];
+}
+
 type Args = Record<string, unknown>;
 type Invoke = <T>(cmd: string, args?: Args) => Promise<T>;
 
@@ -185,7 +190,7 @@ export const api = {
   aiStatus: () => call<AiStatus>("ai_status"),
   aiExtract: (text: string, pageTitle: string | null) => call<AiResult<Extracted>>("ai_extract", { text, pageTitle }),
   aiBreakdown: (id: string) => call<AiResult<string[]>>("ai_breakdown", { id }),
-  aiSummary: () => call<AiResult<string>>("ai_summary"),
+  planDay: () => call<DayPlan>("plan_day"),
   codeProjects: () => call<CodeProject[]>("code_projects_list"),
   linkCodeProject: (id: string, projectId: string | null) =>
     call<CodeProject>("code_project_set_project", { id, projectId }),

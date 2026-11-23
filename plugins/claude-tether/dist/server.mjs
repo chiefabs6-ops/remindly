@@ -34868,7 +34868,7 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
     "suggest_task_update",
     {
       title: "Tether: suggest a change to a task",
-      description: "Propose a change to an existing task (progress note, new due date, status, priority). Applied only after the user approves it in Tether. Use instead of creating a near-duplicate task.",
+      description: "Propose a change to an existing task (progress note, new due date, status, priority, or subtasks to add as a breakdown). Applied only after the user approves it in Tether. Use instead of creating a near-duplicate task.",
       inputSchema: external_exports.object({
         taskId: external_exports.string().min(1).max(64),
         appendNote: external_exports.string().max(4e3).optional().describe("Progress made / what remains, appended to the task notes"),
@@ -34876,7 +34876,8 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
         dueDate: DATE.nullable().optional().describe("New due date, or null to clear"),
         dueTime: TIME.nullable().optional(),
         priority: external_exports.number().int().min(0).max(3).optional(),
-        title: external_exports.string().min(3).max(200).optional()
+        title: external_exports.string().min(3).max(200).optional(),
+        addSubtasks: external_exports.array(external_exports.string().min(3).max(200)).max(15).optional().describe("Concrete steps to add as subtasks (a breakdown)")
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },

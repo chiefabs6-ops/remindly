@@ -28,7 +28,7 @@ impl Default for AiSettings {
         Self {
             enabled: false,
             url: "http://127.0.0.1:11434".into(),
-            model: "qwen2.5:3b".into(),
+            model: "qwen2.5:1.5b".into(),
         }
     }
 }
@@ -55,7 +55,7 @@ impl AiSettings {
             ));
         }
         if self.model.trim().is_empty() || self.model.len() > 100 {
-            return Err(AppError::invalid("pick a model, e.g. qwen2.5:3b"));
+            return Err(AppError::invalid("pick a model, e.g. qwen2.5:1.5b"));
         }
         Ok(())
     }
@@ -300,23 +300,6 @@ pub fn break_down(cfg: &AiSettings, title: &str, details: &str) -> AppResult<(Ve
     Ok((steps, tps))
 }
 
-/// A few sentences about today's work, from task titles and dates only.
-pub fn summarise(cfg: &AiSettings, facts: &str) -> AppResult<(String, f64)> {
-    #[derive(Deserialize)]
-    struct Summary {
-        summary: String,
-    }
-    let schema = json!({
-        "type": "object",
-        "properties": { "summary": { "type": "string" } },
-        "required": ["summary"]
-    });
-    let system = "Write a short plan for the day in 2-4 plain sentences: what is overdue, what matters most today, \
-                  and one suggestion for what to start with. Use only the facts given. No greetings.";
-    let (s, tps): (Summary, f64) = chat(cfg, system, facts, schema)?;
-    Ok((s.summary.chars().take(1200).collect(), tps))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,7 +322,7 @@ mod tests {
             rt.block_on(async move {
                 let app = Router::new()
                     .route("/api/version", get(|| async { Json(json!({ "version": "0.12.0" })) }))
-                    .route("/api/tags", get(|| async { Json(json!({ "models": [{ "name": "qwen2.5:3b" }] })) }))
+                    .route("/api/tags", get(|| async { Json(json!({ "models": [{ "name": "qwen2.5:1.5b" }] })) }))
                     .route(
                         "/api/chat",
                         post(move |_body: String| async move {
@@ -434,8 +417,6 @@ mod tests {
         let url = fake_ollama(r#"{"steps":["Fix validation","  ","Test Irish translations"]}"#);
         let (steps, _) = break_down(&on(url), "Finish profile", "").unwrap();
         assert_eq!(steps, ["Fix validation", "Test Irish translations"]);
-        let url = fake_ollama(r#"{"summary":"Two tasks are overdue; start with the VAT return."}"#);
-        assert!(summarise(&on(url), "facts").unwrap().0.contains("VAT"));
     }
 
     #[test]
@@ -465,7 +446,7 @@ mod tests {
         );
         assert!(
             status(&AiSettings {
-                model: "qwen2.5:3b".into(),
+                model: "qwen2.5:1.5b".into(),
                 ..on(url)
             })
             .model_installed
