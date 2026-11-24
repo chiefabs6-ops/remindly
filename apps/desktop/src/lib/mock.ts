@@ -437,7 +437,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
         store.tasks.filter((s) => s.parentId === tid && live(s)).forEach((s) =>
           store.tasks.push({ ...s, id: id(), parentId: copy.id, status: "not_started", completedAt: null, createdAt: stamp, updatedAt: stamp }));
         t.repeatNextId = copy.id;
-      } else if (was === "completed" && next && next.status === "not_started" && next.updatedAt === next.createdAt) {
+      } else if (was === "completed" && status !== "archived" && next && next.status === "not_started" && next.updatedAt === next.createdAt) {
         store.tasks.forEach((x) => (x.id === next.id || x.parentId === next.id) && !x.deletedAt && (x.deletedAt = now()));
         t.repeatNextId = null;
       }

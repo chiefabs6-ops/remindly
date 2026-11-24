@@ -285,6 +285,27 @@ fn spawn_next(
     Ok(copy.id)
 }
 
+/// True when the copy made on completion has not been worked on: still not started, never edited,
+/// its subtasks are the ones copied with it and unchanged, and it has no reminder of its own.
+fn untouched_copy(conn: &Connection, n: &Task) -> AppResult<bool> {
+    if n.status != TaskStatus::NotStarted || n.updated_at != n.created_at {
+        return Ok(false);
+    }
+    let changed_subtasks: i64 = conn.query_row(
+        "SELECT count(*) FROM tasks s WHERE s.parent_id = ?1 AND s.deleted_at IS NULL
+           AND (s.updated_at != s.created_at OR s.status != 'not_started'
+                OR (julianday(s.created_at) - julianday(?2)) * 86400 > 5)",
+        params![n.id, n.created_at],
+        |r| r.get(0),
+    )?;
+    let reminders: i64 = conn.query_row(
+        "SELECT count(*) FROM reminders WHERE task_id = ?1 AND kind IN ('custom', 'snooze')",
+        [&n.id],
+        |r| r.get(0),
+    )?;
+    Ok(changed_subtasks == 0 && reminders == 0)
+}
+
 /// Manual order from drag and drop: `ids` in their new order. The list still sorts by due date
 /// first, so the UI only reorders tasks that share a date group.
 pub fn reorder(conn: &Connection, ids: &[String]) -> AppResult<()> {
@@ -495,9 +516,9 @@ pub fn set_status(
                 spawn_next(conn, &old, r, chrono::Local::now().date_naive(), actor)?;
             }
         } else if old.status == TaskStatus::Completed
+            && status != TaskStatus::Archived
             && let Some(n) = next
-            && n.status == TaskStatus::NotStarted
-            && n.updated_at == n.created_at
+            && untouched_copy(conn, &n)?
         {
             // Reopened (e.g. undo): the copy made on completion was never touched, so take it back.
             soft_delete(conn, &n.id, actor)?;
@@ -1200,6 +1221,15 @@ mod tests {
             .unwrap();
         assert_eq!(again.repeat_next_id.as_deref(), Some(second.as_str()));
 
+        // Archiving the completed task keeps next week's copy.
+        let done = db
+            .write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        assert_eq!(done.repeat_next_id.as_deref(), Some(second.as_str()));
+        db.write(|c| set_status(c, &t.id, TaskStatus::Archived, true, Actor::User))
+            .unwrap();
+        assert!(db.read(|c| get(c, &second)).is_ok());
+
         // A task that does not repeat makes nothing.
         let plain = mk(&db, "One-off");
         let plain = db
@@ -1212,5 +1242,36 @@ mod tests {
             .write(|c| set_repeat(c, &second, None, Actor::User))
             .unwrap();
         assert!(t.repeat.is_none());
+    }
+
+    #[test]
+    fn reopening_keeps_a_copy_that_was_worked_on() {
+        let db = db();
+        let t = mk(&db, "Weekly report");
+        let daily = Repeat {
+            every: 1,
+            unit: RepeatUnit::Day,
+        };
+        db.write(|c| set_repeat(c, &t.id, Some(daily), Actor::User))
+            .unwrap();
+        let done = db
+            .write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        let copy = done.repeat_next_id.unwrap();
+        // A subtask added to the copy counts as work on it, even though the copy row is unchanged.
+        db.write(|c| {
+            c.execute(
+                "INSERT INTO tasks(id, parent_id, title, created_at, updated_at)
+                 VALUES ('later', ?1, 'Added later', '2099-01-01T00:00:00.000Z', '2099-01-01T00:00:00.000Z')",
+                [&copy],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let reopened = db
+            .write(|c| set_status(c, &t.id, TaskStatus::NotStarted, false, Actor::User))
+            .unwrap();
+        assert!(db.read(|c| get(c, &copy)).is_ok());
+        assert_eq!(reopened.repeat_next_id.as_deref(), Some(copy.as_str()));
     }
 }

@@ -103,3 +103,14 @@ describe("cleanChatText and chat captures", () => {
     expect(s.payload.title).toBe("Send the forms");
   });
 });
+
+describe("chat detection", () => {
+  it("does not treat an agenda with one time line as chat", () => {
+    const text = "Agenda\n10:30\nIntro";
+    expect(cleanChatText(text)).toBe(text);
+  });
+  it("a single header counts when the name has two words or is You", () => {
+    expect(cleanChatText("Anna Murphy\n10:12\nCan you send it?")).toBe("Anna Murphy: Can you send it?");
+    expect(cleanChatText("You\n10:12\nOn it")).toBe("You: On it");
+  });
+});

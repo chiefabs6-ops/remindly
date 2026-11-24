@@ -89,6 +89,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const sections: { name: Row["group"]; rows: { r: Row; i: number }[] }[] = [];
+  rows.forEach((r, i) => {
+    const last = sections[sections.length - 1];
+    if (last && last.name === r.group) last.rows.push({ r, i });
+    else sections.push({ name: r.group, rows: [{ r, i }] });
+  });
   const icon = { size: 15, strokeWidth: 1.6 };
   const status = !q ? "" : search.isError ? "Search failed." : !data ? "Searching…" : rows.length === 1 ? "No matches." : "";
 
@@ -107,24 +113,28 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         {!q ? (
           <p className="pal-hint">Type to find a task, note or project.</p>
         ) : (
-          <div id={`${uid}-list`} ref={listRef} role="listbox" aria-label="Results" className="pal-list">
-            {status && <p className="pal-hint" role="status">{status}</p>}
-            {rows.map((r, i) => (
-              <div key={r.key} role="presentation">
-                {r.group && r.group !== rows[i - 1]?.group && <div className="pal-gh" role="presentation">{r.group}</div>}
-                <div id={`${uid}-${i}`} role="option" aria-selected={i === current} className={`pal-row ${i === current ? "on" : ""} ${r.kind === "done" ? "done" : ""}`}
-                  onMouseMove={() => i !== current && setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => open(r)}>
-                  {r.kind === "task" && <Circle {...icon} aria-hidden />}
-                  {r.kind === "done" && <CheckCircle2 {...icon} aria-hidden />}
-                  {r.kind === "note" && <NotebookPen {...icon} aria-hidden />}
-                  {r.kind === "project" && <FolderKanban {...icon} aria-hidden style={{ color: toneDot(r.color) }} />}
-                  {r.kind === "all" && <Search {...icon} aria-hidden />}
-                  <span className="pal-t">{r.title}</span>
-                  {r.hint && <small>{r.hint}</small>}
+          <>
+            {status && <p className="pal-hint" role="status" aria-live="polite">{status}</p>}
+            <div id={`${uid}-list`} ref={listRef} role="listbox" aria-label="Results" className="pal-list">
+              {sections.map((sec) => (
+                <div key={sec.name ?? "all"} role="group" aria-labelledby={sec.name ? `${uid}-g-${sec.name}` : undefined} aria-label={sec.name ? undefined : "More"}>
+                  {sec.name && <div id={`${uid}-g-${sec.name}`} className="pal-gh">{sec.name}</div>}
+                  {sec.rows.map(({ r, i }) => (
+                    <div key={r.key} id={`${uid}-${i}`} role="option" aria-selected={i === current} className={`pal-row ${i === current ? "on" : ""} ${r.kind === "done" ? "done" : ""}`}
+                      onMouseMove={() => i !== current && setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => open(r)}>
+                      {r.kind === "task" && <Circle {...icon} aria-hidden />}
+                      {r.kind === "done" && <CheckCircle2 {...icon} aria-hidden />}
+                      {r.kind === "note" && <NotebookPen {...icon} aria-hidden />}
+                      {r.kind === "project" && <FolderKanban {...icon} aria-hidden style={{ color: toneDot(r.color) }} />}
+                      {r.kind === "all" && <Search {...icon} aria-hidden />}
+                      <span className="pal-t">{r.title}</span>
+                      {r.hint && <small>{r.hint}</small>}
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>,

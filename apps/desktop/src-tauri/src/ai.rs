@@ -150,7 +150,12 @@ pub fn test(cfg: &AiSettings) -> AppResult<(bool, f64)> {
         schema,
         Duration::from_secs(90),
     )?;
-    Ok((r.ok, tps))
+    if !r.ok {
+        return Err(AppError::invalid(
+            "The model answered, but not as expected. Try another model.",
+        ));
+    }
+    Ok((true, tps))
 }
 
 /// One structured chat call: the reply must match `schema`. Returns the value and tokens/second.

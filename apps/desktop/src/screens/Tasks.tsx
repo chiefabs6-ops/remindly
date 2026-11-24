@@ -14,7 +14,7 @@ import { Tabs } from "../components/ui/Controls";
 import { Popover, usePopover } from "../components/ui/Popover";
 import { useToast } from "../components/ui/Toast";
 import { api, errorMessage } from "../lib/api";
-import { completeTask, patchTask, rescheduleTask } from "../lib/taskActions";
+import { completeTask, patchTask, rescheduleTask, shortDay } from "../lib/taskActions";
 import { toneDot } from "../lib/colors";
 import { longDate, todayIso } from "../lib/format";
 import { useDashboard, useInvalidateAll, useNotes, useProjects, useTasks } from "../lib/queries";
@@ -194,7 +194,7 @@ export function TasksScreen() {
     // Undo puts back the old status and reopens exactly the subtasks this completed.
     void run(async () => {
       const undo = await completeTask(t.id);
-      toast(`Completed “${trunc(t.title)}”`, () => {
+      toast(undo.nextDue ? `Done. Next one due ${shortDay(undo.nextDue)}` : `Completed “${trunc(t.title)}”`, () => {
         clearLinger(t.id);
         return run(undo);
       });

@@ -66,29 +66,34 @@ function parseChat(text: string): { before: string[]; messages: ChatMessage[] } 
   const before: string[] = [];
   const messages: ChatMessage[] = [];
   let name: string | null = null;
-  let found = false;
+  let headers = 0;
+  let firstName = "";
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     const inline = INLINE_HEADER.exec(line);
     if (inline) {
-      found = true;
+      headers++;
       name = inline[1].trim();
+      if (headers === 1) firstName = name;
       messages.push({ name, text: inline[2].trim() });
       continue;
     }
     let j = i + 1;
     while (j < lines.length && !lines[j]) j++;
     if (isNameLine(line) && j < lines.length && TIME_LINE.test(lines[j])) {
-      found = true;
+      headers++;
       name = line;
+      if (headers === 1) firstName = name;
       i = j;
       continue;
     }
     if (name) messages.push({ name, text: line });
     else before.push(line);
   }
-  return found ? { before, messages } : null;
+  // One header is enough only when it looks like a person ("Anna Murphy", "You"); a lone "Agenda / 10:30" is not chat.
+  const personLike = firstName.split(" ").length >= 2 || firstName.toLowerCase() === "you";
+  return headers >= 2 || (headers === 1 && personLike) ? { before, messages } : null;
 }
 
 /**
