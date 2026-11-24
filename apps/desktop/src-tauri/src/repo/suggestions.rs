@@ -459,9 +459,10 @@ pub fn approve(conn: &Connection, id: &str, edited: Option<Value>) -> AppResult<
             {
                 code_projects::set_project(conn, &cp.id, Some(pid))?;
             }
-            // Claude's context is kept in its own column (shown as "Context from Claude"),
-            // so the user's notes stay theirs. Other origins keep the Markdown-in-notes form.
-            let claude_ctx = (s.origin == Origin::Claude)
+            // Claude's and the local AI's context is kept in its own column (shown as "Context from
+            // Claude / local AI"), so the user's notes stay theirs. Chrome and notes keep the
+            // Markdown-in-notes form.
+            let claude_ctx = matches!(s.origin, Origin::Claude | Origin::Ai)
                 .then(|| s.context.clone())
                 .flatten();
             let ctx_md = if claude_ctx.is_some() {
@@ -1114,5 +1115,22 @@ mod tests {
             db.read(|c| get(c, &s.id)).unwrap().status,
             SuggestionStatus::Pending
         );
+    }
+
+    #[test]
+    fn local_ai_context_is_kept_apart_from_notes_too() {
+        let db = db();
+        let ctx = json!({ "meeting": { "meetingId": "m1", "noteId": "n1", "title": "PBL trainers" }, "quote": "I'll send it Friday" });
+        let s = NewSuggestion {
+            origin: Origin::Ai,
+            context: Some(ctx.clone()),
+            ..chrome_task("Send the timetable", None)
+        };
+        let s = db.write(|c| create(c, &s)).unwrap();
+        let r = db.write(|c| approve(c, &s.id, None)).unwrap();
+        let t = db.read(|c| tasks::get(c, &r.id)).unwrap();
+        assert_eq!(t.claude_context, Some(ctx));
+        assert!(t.notes.is_none());
+        assert_eq!(t.source, Source::Ai);
     }
 }

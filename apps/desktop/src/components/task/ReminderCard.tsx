@@ -43,7 +43,7 @@ export function ReminderCard({ t, ed }: { t: TaskDetail; ed: TaskEdit }) {
   const next = nextMoment(t, rules);
   const morningTooLate = !!t.dueTime && t.dueTime <= workStart;
   const leadNeedsTime = lead !== null && lead >= 0 && !t.dueTime;
-  const title = !rules.enabled ? "Reminders are off" : next ? fmt(next.at) : "Nothing planned";
+  const title = !rules.enabled ? "Reminders are off" : next ? fmt(next.at) : "No reminder set";
   const sub = !rules.enabled
     ? "Turn them on in Settings → Reminders"
     : t.snoozedUntil
@@ -53,7 +53,11 @@ export function ReminderCard({ t, ed }: { t: TaskDetail; ed: TaskEdit }) {
         : lead === -1 && morningTooLate
           ? "Morning of · due before work starts, so only at the due time"
           : lead === null
-            ? `Default · ${t.dueTime ? minutesLabel(rules.dueSoonMinutes).toLowerCase() : "add a due time for an early reminder"}`
+            ? t.dueTime
+              ? `Default · ${minutesLabel(rules.dueSoonMinutes).toLowerCase()}`
+              : t.dueDate
+                ? "No time on this task: pick “Morning of” or a custom time"
+                : "Set a due date, or pick a custom time"
             : lead === -1
               ? `Morning of · ${workStart}`
               : minutesLabel(lead);
