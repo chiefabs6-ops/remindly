@@ -117,7 +117,8 @@
 .tp-bar .acts { margin-left: auto; display: flex; gap: 6px; flex: none; }
 /* The page sizes itself to its own width (sidebar or not, main window or pop-out), not the screen's. */
 .tp-page { container: task / inline-size; }
-.tp { display: grid; grid-template-columns: minmax(0, 1fr) clamp(330px, 30%, 420px); align-items: start; }
+/* Row 2 takes any spare height, so a tall properties card never opens a gap under the title. */
+.tp { display: grid; grid-template-columns: minmax(0, 1fr) clamp(330px, 30%, 420px); grid-template-rows: auto 1fr; align-items: start; }
 .tp-head { grid-column: 1; grid-row: 1; padding: 28px 32px 0 40px; min-width: 0; }
 .tp-main { grid-column: 1; grid-row: 2; }
 /* The properties card sits level with the title, beside the whole task. */
@@ -127,7 +128,8 @@
 .tp-head .src { margin-left: 34px; }
 /* Text uses all the width up to the properties card (no fixed cap, so wide windows have no gap). */
 .tp-main { padding: 8px 32px 48px 40px; min-width: 0; }
-.tp-main .desc { margin-left: 24px; width: calc(100% - 24px); font-size: 14.5px; line-height: 23px; }
+/* Keep very wide windows readable: long lines stop at about 120 characters. */
+.tp-main .desc { margin-left: 24px; width: calc(100% - 24px); max-width: 120ch; font-size: 14.5px; line-height: 23px; }
 /* Stays in view while the task scrolls; scrolls on its own if it is taller than the window. */
 .tp-side { position: sticky; top: 64px; margin: 20px 20px 24px 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); max-height: calc(100vh - 140px); overflow-y: auto; scrollbar-width: thin; }
 .tp-side .props { margin-top: 4px; grid-template-columns: 70px minmax(0, 1fr); }
@@ -138,12 +140,10 @@
 
 /* Narrow: one column, properties under the title. */
 @container task (max-width: 759px) {
-  .tp { grid-template-columns: minmax(0, 1fr); }
-  .tp-side { position: static; margin: 16px 40px 0; order: 0; max-height: none; overflow: visible; }
+  .tp { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .tp-side { position: static; max-height: none; overflow: visible; }
   .tp > .tp-side { grid-column: 1; grid-row: 2; margin: 16px 20px 0 20px; }
   .tp-main { grid-row: 3; }
-  .tp-head { order: -1; }
-  .tp-main { order: 1; }
 }
 @media (max-width: 1023px) {
   .tp-head { padding: 20px 20px 0; }
@@ -160,3 +160,9 @@
 .remcard .sw { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; }
 .remcard .sw .txt { flex: 1; min-width: 0; }
 .remcard .sw .txt small { display: block; margin-top: 1px; color: var(--faint); font-size: 12px; }
+
+/* Description in read mode: same box as the editor, text wraps and keeps line breaks; links open in the browser. */
+.desc-view { white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.desc-view:focus-visible { outline: 2px solid var(--today); outline-offset: 2px; }
+.tlink { color: var(--today); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
+.tlink:hover { color: var(--text); }

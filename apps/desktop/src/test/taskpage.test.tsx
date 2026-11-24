@@ -38,6 +38,22 @@ async function taskId(query: string) {
 }
 
 describe("Full task page", () => {
+  it("links in the description are clickable, and clicking the text still edits it", async () => {
+    const user = userEvent.setup();
+    const id = await taskId("Approve October expense claims");
+    await mockInvoke("task_update", { id, input: { title: "Approve October expense claims", description: "Check https://app.clickup.com/t/26441883/869fp12dv please" } });
+    window.location.hash = `#/task/${id}`;
+    render(<App />);
+    expect(await screen.findByRole("link", { name: "https://app.clickup.com/t/26441883/869fp12dv" }))
+      .toHaveAttribute("href", "https://app.clickup.com/t/26441883/869fp12dv");
+    await user.click(screen.getByRole("button", { name: /Description\. Click to edit/ }));
+    const box = await screen.findByRole("textbox", { name: "Description" });
+    await user.clear(box);
+    await user.type(box, "New text");
+    await user.tab();
+    await waitFor(async () => expect((await mockInvoke<{ description: string | null }>("task_get", { id })).description).toBe("New text"));
+  });
+
   it("empty time and do-on fields are buttons, and both can be set", async () => {
     const user = userEvent.setup();
     // A dated task without a time.

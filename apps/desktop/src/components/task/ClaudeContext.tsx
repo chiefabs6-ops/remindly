@@ -3,6 +3,7 @@ import { Globe } from "lucide-react";
 import type { TaskDetail } from "@tether/core";
 import { hostOf } from "../../lib/format";
 import { ClaudeMark } from "../ui/Bits";
+import { LinkedText } from "./LinkedText";
 import { contextParts, openExternal, parseContext, same, type CtxPart } from "./model";
 
 const RESUME = /resume|pick|continue|where/i;
@@ -60,7 +61,7 @@ export function CapturedText({ t }: { t: TaskDetail }) {
     <section className="sec" aria-label="Captured text">
       <div className="sec-h"><Globe size={14} strokeWidth={1.6} />Captured text</div>
       <div className="cap">
-        <blockquote>“{t.sourceSelection}”</blockquote>
+        <blockquote>“<LinkedText text={t.sourceSelection} />”</blockquote>
         {t.sourceUrl && (
           <a href={t.sourceUrl} onClick={(e) => { e.preventDefault(); void openExternal(t.sourceUrl!); }} onAuxClick={(e) => e.preventDefault()}>
             {t.sourceTitle || hostOf(t.sourceUrl)} <span className="faint">· {hostOf(t.sourceUrl)}</span> ↗
