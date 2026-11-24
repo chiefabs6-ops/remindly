@@ -18,6 +18,14 @@ export function splitLinks(text: string): TextPart[] {
     let url = m[0];
     const tail = TRAILING.exec(url)?.[0] ?? "";
     if (tail) url = url.slice(0, -tail.length);
+    // Put back closing brackets that close one opened inside the address, e.g. /wiki/Foo_(bar).
+    for (const [open, close] of [["(", ")"], ["[", "]"], ["{", "}"]]) {
+      let rest = m[0].slice(url.length);
+      while (rest.startsWith(close) && url.split(open).length > url.split(close).length) {
+        url += close;
+        rest = rest.slice(1);
+      }
+    }
     if (start > last) out.push({ text: text.slice(last, start) });
     if (url.length > "https://".length) out.push({ text: url, url });
     else out.push({ text: url });

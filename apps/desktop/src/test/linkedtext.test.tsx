@@ -12,6 +12,12 @@ describe("links in task text", () => {
     expect(parts.map((p) => p.text).join("")).toBe("see https://app.clickup.com/t/26441883/869fp12dv ,10:12, https://example.com/a. and javascript:alert(1)");
   });
 
+  it("keeps a closing bracket that belongs to the address", () => {
+    const urls = (s: string) => splitLinks(s).filter((p) => p.url).map((p) => p.url);
+    expect(urls("see https://en.wikipedia.org/wiki/Foo_(bar).")).toEqual(["https://en.wikipedia.org/wiki/Foo_(bar)"]);
+    expect(urls("(see https://example.com/a)")).toEqual(["https://example.com/a"]);
+  });
+
   it("renders only http(s) addresses as links", () => {
     render(<p><LinkedText text="Open https://app.clickup.com/t/1 or file:///C:/x or javascript:alert(1)" /></p>);
     const links = screen.getAllByRole("link");

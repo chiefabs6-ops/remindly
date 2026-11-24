@@ -162,7 +162,10 @@
 .remcard .sw .txt small { display: block; margin-top: 1px; color: var(--faint); font-size: 12px; }
 
 /* Description in read mode: same box as the editor, text wraps and keeps line breaks; links open in the browser. */
-.desc-view { white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
-.desc-view:focus-visible { outline: 2px solid var(--today); outline-offset: 2px; }
+.desc-view { position: relative; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; padding-right: 34px; }
+.desc-empty { text-align: left; color: var(--faint); cursor: text; }
+.desc-edit { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; border: 0; background: none; color: var(--faint); cursor: pointer; opacity: 0; }
+.desc-view:hover .desc-edit, .desc-edit:focus-visible { opacity: 1; }
+.desc-edit:hover { background: var(--active); color: var(--text); }
 .tlink { color: var(--today); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
 .tlink:hover { color: var(--text); }
