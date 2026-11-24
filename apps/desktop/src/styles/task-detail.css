@@ -125,11 +125,12 @@
 .tp > .tp-side { grid-column: 2; grid-row: 1 / span 2; }
 .tp-head .td-title { font-size: 24px; line-height: 32px; }
 .tp-head .dtitle .ck { width: 22px; height: 22px; margin-top: 5px; }
-.tp-head .src { margin-left: 34px; }
+/* The full page has no tick beside the title, so the lines under it start level with it. */
+.tp-head .src { margin-left: 0; }
 /* Text uses all the width up to the properties card (no fixed cap, so wide windows have no gap). */
 .tp-main { padding: 8px 32px 48px 40px; min-width: 0; }
 /* Keep very wide windows readable: long lines stop at about 120 characters. */
-.tp-main .desc { margin-left: 24px; width: calc(100% - 24px); max-width: 120ch; font-size: 14.5px; line-height: 23px; }
+.tp-main .desc { margin-left: -10px; width: calc(100% + 10px); max-width: 120ch; font-size: 14.5px; line-height: 23px; }
 /* Stays in view while the task scrolls; scrolls on its own if it is taller than the window. */
 .tp-side { position: sticky; top: 64px; margin: 20px 20px 24px 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); max-height: calc(100vh - 140px); overflow-y: auto; scrollbar-width: thin; }
 .tp-side .props { margin-top: 4px; grid-template-columns: 70px minmax(0, 1fr); }

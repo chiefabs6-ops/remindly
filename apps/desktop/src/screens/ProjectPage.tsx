@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Code2, GitBranch, StickyNote } from "lucide-react";
 import { addDays, relativeDayLabel, type Priority, type Task, type TaskStatus } from "@tether/core";
 import { QuickAdd } from "../components/QuickAdd";
+import { SkeletonPage, SkeletonRows } from "../components/Skeleton";
 import { ListRow } from "../components/TaskRow";
 import { useToast } from "../components/ui/Toast";
 import { api, errorMessage } from "../lib/api";
@@ -111,7 +112,7 @@ export function ProjectPage() {
 
       <div className="rp">
         <div className="pj-back"><Link to="/projects" className="btn btn-sm btn-ghost"><ChevronLeft size={14} aria-hidden="true" />Projects</Link></div>
-        {projects.isPending ? null : !project ? (
+        {projects.isPending ? <SkeletonPage lines={3} label="Loading project" /> : !project ? (
           <div className="pj-empty">
             <h1>Project not found</h1>
             <p>It may have been archived or deleted.</p>
@@ -140,8 +141,10 @@ export function ProjectPage() {
                   <div className="pj-add"><QuickAdd projects={list} projectId={project.id} /></div>
                   {tasks.isError ? (
                     <p className="pj-none">Couldn’t load tasks: {errorMessage(tasks.error)}</p>
+                  ) : tasks.isPending ? (
+                    <SkeletonRows n={3} label="Loading tasks" />
                   ) : groups.length === 0 ? (
-                    <p className="pj-none">No open tasks.</p>
+                    <p className="pj-none">No tasks in this project. Add one above.</p>
                   ) : groups.map((g) => (
                     <div key={g.key} className="pj-grp">
                       <h3 className={`gh ${g.late ? "od" : ""}`}>{g.label}<span className="c num">{g.items.length}</span></h3>

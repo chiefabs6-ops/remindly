@@ -72,3 +72,19 @@ describe("Sidebar drag and drop", () => {
     await waitFor(() => expect(projectLinks()).toEqual(["Personal", "Educator platform", "Administration"]));
   });
 });
+
+describe("My Tasks rows and projects", () => {
+  it("a row in the Completed view can still be dropped on a sidebar project", async () => {
+    window.location.hash = "#/tasks?view=done";
+    render(<App />);
+    const row = (await screen.findByText("Order replacement laptop charger")).closest<HTMLElement>("[role=listitem]")!;
+    expect(row).toHaveAttribute("draggable", "true");
+    const link = await sidebar().findByRole("link", { name: /Administration/ });
+    const dt = makeDt();
+    fireEvent.dragStart(row, { dataTransfer: dt });
+    expect(dt.types).toContain("application/x-tether-task");
+    fireEvent.dragOver(link, { dataTransfer: dt });
+    fireEvent.drop(link, { dataTransfer: dt });
+    expect(await screen.findByText("Moved to Administration")).toBeInTheDocument();
+  });
+});

@@ -8,6 +8,7 @@ import {
 import { QuickAdd } from "../components/QuickAdd";
 import { QuickPanel } from "../components/QuickPanel";
 import { SuggestionTray } from "../components/SuggestionTray";
+import { SkeletonRows } from "../components/Skeleton";
 import { ListRow } from "../components/TaskRow";
 import { Tabs } from "../components/ui/Controls";
 import { Popover, usePopover } from "../components/ui/Popover";
@@ -395,7 +396,7 @@ export function TasksScreen() {
               Couldn’t load tasks: {errorMessage(tasks.error)}{" "}
               <button type="button" className="underline" onClick={() => tasks.refetch()}>Retry</button>
             </p>
-          ) : tasks.isPending ? null : groups.length === 0 ? (
+          ) : tasks.isPending ? <SkeletonRows n={6} label="Loading tasks" /> : groups.length === 0 ? (
             q ? (
               <div className="tk-empty">
                 <h2>No tasks match “{q}”</h2>

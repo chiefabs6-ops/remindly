@@ -345,7 +345,7 @@ export function CalendarScreen() {
           <button type="button" className="btn mt-3" onClick={() => void tasksQ.refetch()}>Retry</button>
         </div>
       ) : !tasksQ.data ? (
-        <div className="cal-skel" aria-busy="true" />
+        <div className="cal-skel skel" aria-busy="true" />
       ) : view === "month" ? (
         <MonthGrid cells={cells} month={month} tasks={tasks} ctx={ctx} />
       ) : shown.length === 0 ? (

@@ -92,7 +92,7 @@ function Reminders() {
   }, [q.data]);
   const save = useAction((v: ReminderSettings) => api.setReminders(v));
   const test = useAction(() => api.testReminder());
-  if (!r) return <div className="sskel" aria-busy="true" />;
+  if (!r) return <div className="sskel skel" aria-busy="true" />;
   const dirty = JSON.stringify(r) !== JSON.stringify(q.data);
   const set = <K extends keyof ReminderSettings>(k: K, v: ReminderSettings[K]) => setR({ ...r, [k]: v });
   const num = (k: "dueSoonMinutes" | "overdueAfterMinutes" | "nudgeMinutes") => (e: { target: { value: string } }) => set(k, Math.max(0, Number(e.target.value) || 0));
@@ -161,7 +161,7 @@ function Backups() {
   const now = useAction(() => api.backupNow());
   const restore = useAction((name: string) => api.restoreBackup(name));
   const exp = useAction(() => api.exportJson());
-  if (!b) return <div className="sskel" aria-busy="true" />;
+  if (!b) return <div className="sskel skel" aria-busy="true" />;
   const dirty = b.autoDaily !== cfg.data?.autoDaily || b.dir !== cfg.data?.dir || b.keepDaily !== cfg.data?.keepDaily || b.keepWeekly !== cfg.data?.keepWeekly;
   const list = files.data ?? [];
   const kb = (n: number) => `${Math.max(1, Math.round(n / 1024)).toLocaleString("en-IE")} KB`;
@@ -243,7 +243,7 @@ function LocalAi() {
     }
   });
   const test = useAction(() => api.aiExtract("Please send the updated teacher list to the programme lead before Friday", null));
-  if (!a) return <div className="sskel" aria-busy="true" />;
+  if (!a) return <div className="sskel skel" aria-busy="true" />;
   const dirty = JSON.stringify(a) !== JSON.stringify(cfg.data);
   const st = status.data;
   return (

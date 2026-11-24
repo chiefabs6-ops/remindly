@@ -2,6 +2,7 @@ import { useState } from "react";
 import { addDays, type Task } from "@tether/core";
 import { api, errorMessage } from "../lib/api";
 import { dueLabel, dueTone, longDate, todayIso } from "../lib/format";
+import { SkeletonRows } from "../components/Skeleton";
 import { useAction, useDashboard } from "../lib/queries";
 
 /** End-of-day review: decide what happens to each task still open for today. */
@@ -61,7 +62,8 @@ export function ReviewScreen() {
       <p className="mt-1 text-muted">Move each one to tomorrow, another day or the backlog — or mark it done. Anything you skip stays as it is.</p>
       <ul className="mt-5 rounded-[8px] border border-line bg-surface px-2" aria-label="Open tasks for today">
         {dash.isError && <li className="p-3 text-negative">{errorMessage(dash.error)}</li>}
-        {d && open.length === 0 && <li className="p-3 text-muted">Nothing left open for today.</li>}
+        {dash.isPending && <li><SkeletonRows n={3} label="Loading tasks" /></li>}
+        {d && open.length === 0 && <li className="p-3 text-muted">Nothing needs reviewing. Nothing is left open for today.</li>}
         {open.map((t) => <ReviewRow key={t.id} t={t} />)}
       </ul>
     </div>

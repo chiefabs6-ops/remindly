@@ -262,11 +262,11 @@ kbd { font: 500 11px var(--font-sans); color: var(--faint); border: 1px solid va
 /* Round completion check. */
 .ck { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1.5px solid var(--control); display: grid; place-items: center; background: transparent; cursor: pointer; transition: border-color 120ms, background-color 120ms; }
 .ck:hover { border-color: var(--muted); }
-.ck svg { opacity: 0; width: 11px; height: 11px; stroke: var(--primary-ink); stroke-width: 2.6; fill: none; }
+.ck svg { opacity: 0; width: 11px; height: 11px; stroke: var(--primary-ink); stroke-width: 2.6; fill: none; transform: scale(0.6); transition: opacity 150ms ease-out, transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1); }
 .ck:hover svg { opacity: 0.35; stroke: var(--muted); }
 .ck-high { border-color: var(--warn); }
 .ck-on, .ck-on:hover { background: var(--muted); border-color: var(--muted); }
-.ck-on svg, .ck-on:hover svg { opacity: 1; stroke: var(--surface); }
+.ck-on svg, .ck-on:hover svg { opacity: 1; stroke: var(--surface); transform: scale(1); }
 .ck:disabled { cursor: progress; }
 
 /* Underline tabs with counts. */

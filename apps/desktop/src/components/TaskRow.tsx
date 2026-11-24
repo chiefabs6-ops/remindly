@@ -225,13 +225,14 @@ export function ListRow(p: ListRowProps) {
       data-kb={p.cursor ? "true" : undefined}
       aria-current={p.selected ? "true" : undefined}
       className={`trow ${done ? "done" : ""} ${p.selected ? "sel" : ""} ${p.cursor ? "kb" : ""} ${p.draggable ? "" : "nodrag"} ${p.hideProject ? "np" : ""} ${hovOpen ? "hov-open" : ""} ${p.dragging ? "dragging" : ""} ${p.dropTarget ? "over" : ""}`}
-      draggable={p.draggable || undefined}
+      draggable
       onClick={(e) => {
         // Portalled popovers bubble through React; only clicks on the row itself open it.
         if (e.currentTarget.contains(e.target as Node) && !(e.target as HTMLElement).closest("button,a")) p.onOpen(t.id);
       }}
       onDragStart={(e) => {
-        p.onDragStart?.(e, t.id);
+        // Every row can be dragged to a project; only rows with a live grip also reorder inside the list.
+        if (p.draggable) p.onDragStart?.(e, t.id);
         e.dataTransfer?.setData(TASK_DND, t.id);
       }}
       onDragOver={(e) => p.onDragOver?.(e, t.id)}

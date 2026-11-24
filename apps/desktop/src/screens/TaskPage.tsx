@@ -14,6 +14,7 @@ import { ReminderCard } from "../components/task/ReminderCard";
 import { Subtasks } from "../components/task/Subtasks";
 import { TitleBlock } from "../components/task/TitleBlock";
 import { useTaskEdit } from "../components/task/useTaskEdit";
+import { SkeletonPage } from "../components/Skeleton";
 import { usePopover } from "../components/ui/Popover";
 import { ReschedulePopover } from "../components/ui/Reschedule";
 import { api, errorMessage } from "../lib/api";
@@ -118,12 +119,12 @@ export function TaskPage() {
   if (q.isError) {
     return (
       <div className="px-6 py-8 lg:px-10">
-        <h1 className="text-[22px] font-semibold">Task not found</h1>
-        <p className="mt-1 text-muted">It may have been deleted. {errorMessage(q.error)}</p>
+        <h1 className="text-[22px] font-semibold">This task no longer exists</h1>
+        <p className="mt-1 text-muted">It may have been deleted.</p>
         <Link to="/tasks" className="btn mt-4">Back to My Tasks</Link>
       </div>
     );
   }
-  if (!q.data) return <div className="px-6 py-8 lg:px-10" aria-busy="true"><div className="h-8 w-2/3 rounded bg-active" /></div>;
+  if (!q.data) return <div className="px-6 py-8 lg:px-10"><SkeletonPage lines={5} label="Loading task" /></div>;
   return <Body key={q.data.id} t={q.data} />;
 }

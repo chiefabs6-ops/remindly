@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Code2 } from "lucide-react";
 import type { Project } from "@tether/core";
+import { SkeletonRows } from "../components/Skeleton";
 import { api, errorMessage } from "../lib/api";
 import { useAction, useProjects, useTasks } from "../lib/queries";
 import { TONES, toneDot, toneOf, toneStyle } from "../lib/colors";
@@ -171,7 +172,9 @@ export function ProjectsScreen() {
       <h1>Projects</h1>
       <p className="sum"><span className="num">{active.length}</span> active · <span className="num">{list.length - active.length}</span> archived</p>
       <div className="pj-new"><ProjectForm /></div>
-      {list.length === 0 && <p className="pj-none">No projects yet. Add your first one above.</p>}
+      {projects.isPending && <SkeletonRows n={4} label="Loading projects" />}
+      {projects.isSuccess && list.length === 0 && <p className="pj-none">No projects yet. Add your first one above.</p>}
+      {projects.isError && <p className="pj-err">Couldn’t load projects: {errorMessage(projects.error)}</p>}
       <ul className="pj-list" aria-label="Projects">
         {list.map((p) => <Row key={p.id} p={p} overdue={overdue.get(p.id) ?? 0} linked={linked.has(p.id)} />)}
       </ul>

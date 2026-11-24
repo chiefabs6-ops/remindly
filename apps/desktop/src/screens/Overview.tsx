@@ -198,7 +198,7 @@ export function OverviewScreen() {
                   </ol>
                 )}
               </>
-            ) : plan.isError ? <p className="od">{errorMessage(plan.error)}</p> : <div className="ov-skel" aria-busy="true" />}
+            ) : plan.isError ? <p className="od">{errorMessage(plan.error)}</p> : <div className="ov-skel skel" aria-busy="true" />}
           </div>
         </section>
       )}
@@ -207,7 +207,7 @@ export function OverviewScreen() {
         <div>
           <Card title="Today’s focus" count={focus.length} link={{ to: "/tasks", text: "Open My Tasks" }} label="Today's focus">
             <div className="card-b" role="list">
-              {!d ? <div className="ov-skel" aria-busy="true" />
+              {!d ? <div className="ov-skel skel" aria-busy="true" />
                 : focus.length === 0 ? <p className="ov-empty">Nothing due today.</p>
                 : focus.map((t) => (
                   <ListRow key={t.id} task={t} project={t.projectId ? projectById.get(t.projectId) : undefined}

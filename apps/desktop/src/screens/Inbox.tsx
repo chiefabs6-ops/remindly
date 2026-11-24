@@ -494,7 +494,7 @@ export function InboxScreen() {
           <button className="btn" onClick={() => { void sugg.refetch(); void unsorted.refetch(); }}>Retry</button>
         </div>
       ) : !sugg.data || !unsorted.data ? (
-        <div className="ib-skel" aria-busy="true" />
+        <div className="ib-skel skel" aria-busy="true" />
       ) : tab === "captures" ? (
         captures.length ? <>
           <BulkBar list={captures} />

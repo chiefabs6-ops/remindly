@@ -223,7 +223,8 @@ function Frame() {
           <span className="flex-1 truncate">Search tasks, notes and projects</span>
           <kbd className="text-xs text-faint">Ctrl K</kbd>
         </button>
-        <NavLink to="/settings" aria-label="Settings" title="Settings" className="btn btn-ghost ml-auto px-2 lg:hidden"><Settings size={16} /></NavLink>
+        <button type="button" aria-haspopup="dialog" aria-label="Open search" title="Search (Ctrl+K)" onClick={() => setPalette(true)} className="btn btn-ghost ml-auto px-2 lg:hidden"><Search size={16} /></button>
+        <NavLink to="/settings" aria-label="Settings" title="Settings" className="btn btn-ghost px-2 lg:hidden"><Settings size={16} /></NavLink>
         <button className="btn btn-primary h-8 max-lg:ml-0 lg:ml-auto flex-none whitespace-nowrap" onClick={() => { navigate("/tasks"); setTimeout(() => document.getElementById("quick-add")?.focus(), 50); }}>
           <Plus size={14} /> New task
         </button>

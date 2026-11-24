@@ -6,9 +6,12 @@
 .tk-panel { flex: none; width: 404px; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
 .tk-panel > .detail { flex: 1; }
 .tk-scrim { display: none; }
+.tk-panel { animation: panel-in 200ms ease-out; }
+@keyframes panel-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (max-width: 1279px) {
   .tk-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 20; max-width: 100%; box-shadow: -16px 0 40px rgba(0, 0, 0, 0.4); }
-  .tk-scrim { display: block; position: absolute; inset: 0; z-index: 15; background: rgba(0, 0, 0, 0.35); }
+  .tk-scrim { display: block; position: absolute; inset: 0; z-index: 15; background: rgba(0, 0, 0, 0.35); animation: fade-in 200ms ease-out; }
 }
 
 /* ---------- header ---------- */
@@ -49,6 +52,8 @@
 .tray.open .tray-h .peek { display: none; }
 .tray-h .peek + .chev { margin-left: 0; }
 .tray-sugg { padding: 0 6px 6px; }
+.tray-sugg { animation: tray-in 180ms ease-out; }
+@keyframes tray-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .tray-bulk { display: flex; justify-content: flex-end; gap: 8px; padding: 2px 6px 8px; }
 .sg { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; padding: 10px 8px; border-top: 1px solid var(--border); }
 .sg-ring { width: 16px; height: 16px; border-radius: 50%; border: 1.5px dashed var(--faint); margin-top: 2px; }
