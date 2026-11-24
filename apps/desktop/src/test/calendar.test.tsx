@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { addDays } from "@tether/core";
 import App from "../App";
@@ -95,5 +95,63 @@ describe("Calendar", () => {
     window.location.hash = `#/calendar?week=${addDays(mondayOf(todayIso()), 700)}`;
     render(<App />);
     expect(await screen.findByText("Nothing due this week.")).toBeInTheDocument();
+  });
+});
+
+/** A minimal DataTransfer that keeps what the drag source stores. */
+const makeDt = () => {
+  const store: Record<string, string> = {};
+  return {
+    setData: (k: string, v: string) => { store[k] = v; },
+    getData: (k: string) => store[k] ?? "",
+    get types() { return Object.keys(store); },
+    effectAllowed: "",
+    dropEffect: "",
+  };
+};
+
+const learn = () => mockInvoke<{ dueDate: string; dueTime: string }[]>("tasks_list", { filter: { query: "LearnWorlds" } }).then((l) => l[0]);
+const otherDay = (today: string) => (today === addDays(mondayOf(today), 6) ? addDays(today, -1) : addDays(today, 1));
+
+describe("Calendar drag and drop", () => {
+  it("dropping a timed task on another day changes the date and keeps the time", async () => {
+    render(<App />);
+    const today = todayIso();
+    const block = (await within(await waitFor(() => col("dcol", today))).findByText("Review course import from LearnWorlds")).closest("a")!;
+    const target = otherDay(today);
+    const dt = makeDt();
+    fireEvent.dragStart(block, { dataTransfer: dt });
+    fireEvent.dragOver(col("dcol", target), { dataTransfer: dt });
+    expect(col("dcol", target)).toHaveClass("drop");
+    fireEvent.drop(col("dcol", target), { dataTransfer: dt });
+    await waitFor(async () => {
+      const t = await learn();
+      expect(t.dueDate).toBe(target);
+      expect(t.dueTime).toBe("15:30");
+    });
+    expect(await screen.findByText(/^Moved to /)).toBeInTheDocument();
+    expect(document.querySelector(".drop")).toBeNull();
+  });
+
+  it("Undo puts the task back", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const today = todayIso();
+    const block = (await within(await waitFor(() => col("dcol", today))).findByText("Review course import from LearnWorlds")).closest("a")!;
+    const dt = makeDt();
+    fireEvent.dragStart(block, { dataTransfer: dt });
+    fireEvent.drop(col("dcol", otherDay(today)), { dataTransfer: dt });
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(async () => {
+      const t = await learn();
+      expect(t.dueDate).toBe(today);
+      expect(t.dueTime).toBe("15:30");
+    });
+  });
+
+  it("finished tasks are not draggable", async () => {
+    render(<App />);
+    const chip = (await within(await waitFor(() => col("ad", todayIso()))).findByText("Order replacement laptop charger")).closest("a")!;
+    expect(chip).toHaveAttribute("draggable", "false");
   });
 });

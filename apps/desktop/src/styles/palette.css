@@ -1,0 +1,19 @@
+/* Ctrl+K command palette. */
+@layer components {
+  .pal-back { position: fixed; inset: 0; z-index: 70; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; background: rgba(15, 23, 32, 0.32); }
+  .pal { width: min(560px, calc(100vw - 32px)); max-height: 70vh; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; border: 1px solid var(--control); background: var(--raised); box-shadow: var(--float-shadow); animation: pop-in 120ms ease-out; }
+  .pal-in { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px; color: var(--faint); border-bottom: 1px solid var(--border); }
+  .pal-in input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 14px; }
+  .pal-in input::placeholder { color: var(--faint); }
+  .pal-in kbd { font-size: 11px; color: var(--faint); }
+  .pal-hint { margin: 0; padding: 14px; font-size: 13px; color: var(--muted); }
+  .pal-list { overflow-y: auto; padding: 6px; }
+  .pal-gh { padding: 8px 10px 4px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+  .pal-row { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--text); cursor: pointer; }
+  .pal-row > svg { flex: none; color: var(--muted); }
+  .pal-row.on { background: var(--active); }
+  .pal-row .pal-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pal-row small { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--faint); }
+  .pal-row.done .pal-t { color: var(--faint); text-decoration: line-through; }
+  @media (prefers-reduced-motion: reduce) { .pal { animation: none; } }
+}

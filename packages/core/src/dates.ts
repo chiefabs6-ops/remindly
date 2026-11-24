@@ -56,6 +56,33 @@ export function findDate(text: string, ref: Date = new Date()): FoundDate | null
   };
 }
 
+/** Due date of a repeating task's next copy, counted from `from` (the completion date). Mirrors the Rust core. */
+export function nextRepeatDue(from: string, every: number, unit: "day" | "weekday" | "week" | "month"): string {
+  const n = Math.min(Math.max(Math.trunc(every) || 1, 1), 365);
+  const [y, m, d] = from.split("-").map(Number);
+  if (unit === "day") return addDays(from, n);
+  if (unit === "week") return addDays(from, 7 * n);
+  if (unit === "month") {
+    // Keep the day where it can: 31 Jan + 1 month = 28/29 Feb.
+    const last = new Date(y, m - 1 + n + 1, 0).getDate();
+    return isoDate(new Date(y, m - 1 + n, Math.min(d, last)));
+  }
+  let out = from;
+  for (let left = n; left > 0; ) {
+    out = addDays(out, 1);
+    const [yy, mm, dd] = out.split("-").map(Number);
+    const wd = new Date(yy, mm - 1, dd).getDay();
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  return out;
+}
+
+/** "every day", "every 2 weeks", "every working day". */
+export function repeatLabel(every: number, unit: "day" | "weekday" | "week" | "month"): string {
+  const word = unit === "weekday" ? "working day" : unit;
+  return every === 1 ? `every ${word}` : `every ${every} ${word}s`;
+}
+
 /** Friendly label: Today / Tomorrow / Yesterday / weekday within a week / "3 Dec". */
 export function relativeDayLabel(date: string, today: string): string {
   const diff = dayDiff(today, date);

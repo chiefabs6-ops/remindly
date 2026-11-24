@@ -92,7 +92,7 @@ function Reminders() {
   }, [q.data]);
   const save = useAction((v: ReminderSettings) => api.setReminders(v));
   const test = useAction(() => api.testReminder());
-  if (!r) return <div className="sskel" aria-busy="true" />;
+  if (!r) return <div className="sskel skel" aria-busy="true" />;
   const dirty = JSON.stringify(r) !== JSON.stringify(q.data);
   const set = <K extends keyof ReminderSettings>(k: K, v: ReminderSettings[K]) => setR({ ...r, [k]: v });
   const num = (k: "dueSoonMinutes" | "overdueAfterMinutes" | "nudgeMinutes") => (e: { target: { value: string } }) => set(k, Math.max(0, Number(e.target.value) || 0));
@@ -161,7 +161,7 @@ function Backups() {
   const now = useAction(() => api.backupNow());
   const restore = useAction((name: string) => api.restoreBackup(name));
   const exp = useAction(() => api.exportJson());
-  if (!b) return <div className="sskel" aria-busy="true" />;
+  if (!b) return <div className="sskel skel" aria-busy="true" />;
   const dirty = b.autoDaily !== cfg.data?.autoDaily || b.dir !== cfg.data?.dir || b.keepDaily !== cfg.data?.keepDaily || b.keepWeekly !== cfg.data?.keepWeekly;
   const list = files.data ?? [];
   const kb = (n: number) => `${Math.max(1, Math.round(n / 1024)).toLocaleString("en-IE")} KB`;
@@ -234,8 +234,16 @@ function LocalAi() {
     if (cfg.data) setA(cfg.data);
   }, [cfg.data]);
   const save = useAction((v: AiSettings) => api.setAiSettings(v));
+  // Test connection: a real round-trip to the model, then re-check Ollama's status.
+  const conn = useAction(async () => {
+    try {
+      return await api.aiTest();
+    } finally {
+      void status.refetch();
+    }
+  });
   const test = useAction(() => api.aiExtract("Please send the updated teacher list to the programme lead before Friday", null));
-  if (!a) return <div className="sskel" aria-busy="true" />;
+  if (!a) return <div className="sskel skel" aria-busy="true" />;
   const dirty = JSON.stringify(a) !== JSON.stringify(cfg.data);
   const st = status.data;
   return (
@@ -260,8 +268,17 @@ function LocalAi() {
         <button type="button" className="btn" disabled={!cfg.data?.enabled || test.isPending} onClick={() => test.mutate(undefined)}>
           {test.isPending ? "Thinking…" : "Try it"}
         </button>
+        <button type="button" className="btn" disabled={!cfg.data?.enabled || conn.isPending} onClick={() => conn.mutate(undefined)}>
+          Test connection
+        </button>
+        {!cfg.data?.enabled && <span className="muted">Turn Local AI on first</span>}
         {test.data && <span className="num muted">{test.data.tokensPerSecond.toFixed(1)} tokens/s on this PC</span>}
       </div>
+      <p className={conn.isError ? "err pad" : "muted pad"} role="status" aria-live="polite">
+        {conn.isPending ? "Testing… (the first run can take up to a minute while the model loads)"
+          : conn.isError ? errorMessage(conn.error)
+          : conn.data ? `Working — the model replied (${conn.data.tokensPerSecond.toFixed(1)} tokens/s)` : ""}
+      </p>
       {test.data && <p className="sample">Example: “{test.data.value.title}”{test.data.value.dueDate ? `, due ${test.data.value.dueDate}` : ""}</p>}
       {(save.error ?? test.error) && <p className="err pad">{errorMessage(save.error ?? test.error)}</p>}
     </form>

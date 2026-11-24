@@ -5,7 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { InboxScreen } from "../screens/Inbox";
 import { ToastProvider } from "../components/ui/Toast";
-import { mockInvoke, resetMock } from "../lib/mock";
+import { mockInvoke, resetMock, sampleStore } from "../lib/mock";
 import { setBackend } from "../lib/api";
 import { queryClient } from "../lib/queries";
 
@@ -115,5 +115,49 @@ describe("Inbox", () => {
     const claude = (await pending()).find((s) => s.origin === "claude")!;
     renderInbox(`/inbox?s=${claude.id}`);
     expect(await screen.findByTestId("where")).toHaveTextContent("/tasks?tray=1");
+  });
+
+  describe("Approve all / Dismiss all", () => {
+    /** The sample Chrome capture (a duplicate) plus two plain captures. */
+    function seedThree() {
+      const base = sampleStore();
+      const dup = base.suggestions.find((s) => s.origin === "chrome")!;
+      const plain = (n: number) => ({
+        ...dup,
+        id: `extra-${n}`,
+        possibleDuplicateOf: null,
+        payload: { title: `Plain capture ${n}` },
+      });
+      resetMock({ ...base, suggestions: [...base.suggestions, plain(1), plain(2)] });
+    }
+
+    it("Approve all adds the plain captures and leaves the duplicate pending", async () => {
+      seedThree();
+      const user = userEvent.setup();
+      renderInbox();
+      await user.click(await screen.findByRole("button", { name: "Approve all" }));
+      expect(await screen.findByText("Approved 2. 1 left for you to check (looks like a duplicate).")).toBeInTheDocument();
+      const left = (await pending()).filter((s) => s.origin === "chrome");
+      expect(left).toHaveLength(1);
+      expect(left[0].id).not.toMatch(/^extra-/);
+      expect(await mockInvoke<unknown[]>("tasks_list", { filter: { query: "Plain capture" } })).toHaveLength(2);
+    });
+
+    it("Dismiss all asks first, then dismisses every capture", async () => {
+      seedThree();
+      const user = userEvent.setup();
+      renderInbox();
+      await user.click(await screen.findByRole("button", { name: "Dismiss all" }));
+      expect((await pending()).filter((s) => s.origin === "chrome")).toHaveLength(3);
+      await user.click(screen.getByRole("button", { name: "Dismiss 3?" }));
+      expect(await screen.findByText("Dismissed 3.")).toBeInTheDocument();
+      expect((await pending()).filter((s) => s.origin === "chrome")).toHaveLength(0);
+    });
+
+    it("shows no bulk buttons for a single capture", async () => {
+      renderInbox();
+      await screen.findByText("Follow up about the updated teacher list before Friday.");
+      expect(screen.queryByRole("button", { name: "Approve all" })).not.toBeInTheDocument();
+    });
   });
 });

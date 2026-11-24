@@ -9,6 +9,7 @@ import { Tabs } from "../components/ui/Controls";
 import { Popover, usePopover } from "../components/ui/Popover";
 import { useToast } from "../components/ui/Toast";
 import { api, errorMessage } from "../lib/api";
+import { useBulkSuggestions } from "../lib/bulkSuggestions";
 import { toneStyle } from "../lib/colors";
 import { ago, dueLabel, hostOf } from "../lib/format";
 import { useAction, useAiEnabled, useInvalidateAll, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
@@ -400,6 +401,29 @@ function UnsortedRow({ t, projects }: { t: Task; projects: Project[] }) {
   );
 }
 
+/** Approve all / Dismiss all for a list of suggestions. Shown only when there is more than one. */
+export function BulkBar({ list, className = "ib-bulk" }: { list: Suggestion[]; className?: string }) {
+  const { running, approveAll, dismissAll } = useBulkSuggestions();
+  const [sure, setSure] = useState(false);
+  useEffect(() => {
+    if (!sure) return;
+    const t = setTimeout(() => setSure(false), 4000);
+    return () => clearTimeout(t);
+  }, [sure]);
+  if (list.length < 2) return null;
+  return (
+    <div className={className} role="group" aria-label="Handle all">
+      <button type="button" className="btn btn-sm" disabled={running} onClick={() => { setSure(false); void approveAll(list); }}>
+        Approve all
+      </button>
+      <button type="button" className="btn btn-sm btn-ghost" disabled={running}
+        onClick={() => { if (sure) { setSure(false); void dismissAll(list); } else setSure(true); }}>
+        {sure ? `Dismiss ${list.length}?` : "Dismiss all"}
+      </button>
+    </div>
+  );
+}
+
 function Empty({ title, text }: { title: string; text: string }) {
   return (
     <div className="tk-empty">
@@ -470,14 +494,20 @@ export function InboxScreen() {
           <button className="btn" onClick={() => { void sugg.refetch(); void unsorted.refetch(); }}>Retry</button>
         </div>
       ) : !sugg.data || !unsorted.data ? (
-        <div className="ib-skel" aria-busy="true" />
+        <div className="ib-skel skel" aria-busy="true" />
       ) : tab === "captures" ? (
-        captures.length ? captures.map((s) => s.kind === "task_update"
-          ? <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />
-          : <CaptureCard key={s.id} s={s} projects={projects.data ?? []} highlight={hl === s.id} />)
+        captures.length ? <>
+          <BulkBar list={captures} />
+          {captures.map((s) => s.kind === "task_update"
+            ? <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />
+            : <CaptureCard key={s.id} s={s} projects={projects.data ?? []} highlight={hl === s.id} />)}
+        </>
           : <Empty title="Nothing to sort" text="Right-click any text in Chrome and choose “Create Task”." />
       ) : tab === "claude" ? (
-        fromClaude.length ? fromClaude.map((s) => <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />)
+        fromClaude.length ? <>
+          <BulkBar list={fromClaude} />
+          {fromClaude.map((s) => <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />)}
+        </>
           : <Empty title="Nothing from Claude" text="Notes and changes Claude proposes show up here." />
       ) : sortedTasks.length ? (
         <div role="list" className="ib-list">

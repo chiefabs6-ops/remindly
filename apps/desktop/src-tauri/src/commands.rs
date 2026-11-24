@@ -119,6 +119,11 @@ pub fn task_set_reminder(s: Db, id: String, lead: Option<i64>, repeat: bool) -> 
 }
 
 #[tauri::command(async)]
+pub fn task_set_repeat(s: Db, id: String, repeat: Option<crate::model::Repeat>) -> AppResult<Task> {
+    s.db.write(|c| tasks::set_repeat(c, &id, repeat, Actor::User))
+}
+
+#[tauri::command(async)]
 pub fn suggestion_merge(s: Db, id: String, task_id: String) -> AppResult<Approved> {
     s.db.write(|c| suggestions::merge_into(c, &id, &task_id))
 }
@@ -566,6 +571,21 @@ pub fn ai_settings_set(s: Db, value: crate::ai::AiSettings) -> AppResult<crate::
 pub async fn ai_status(s: Db<'_>) -> AppResult<crate::ai::AiStatus> {
     let st = s.inner().clone();
     off_runtime(move || Ok(crate::ai::status(&st.db.read(crate::ai::AiSettings::load)?))).await
+}
+
+/// "Test connection": one short round trip to the model with the saved settings.
+#[tauri::command]
+pub async fn ai_test(s: Db<'_>) -> AppResult<AiResult<bool>> {
+    let st = s.inner().clone();
+    off_runtime(move || {
+        let cfg = st.db.read(crate::ai::AiSettings::load)?;
+        let (value, tps) = crate::ai::test(&cfg)?;
+        Ok(AiResult {
+            value,
+            tokens_per_second: tps,
+        })
+    })
+    .await
 }
 
 /// Runs a model call on the blocking pool so the async runtime (which also serves the local API)

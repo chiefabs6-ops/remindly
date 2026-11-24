@@ -8,7 +8,7 @@ import { todayIso } from "../lib/format";
 import { useInvalidateAll, useSuggestions } from "../lib/queries";
 import { ClaudeMark, PriorityBars } from "./ui/Bits";
 import { useToast } from "./ui/Toast";
-import { Review } from "../screens/Inbox";
+import { BulkBar, Review } from "../screens/Inbox";
 
 const trunc = (s: string) => (s.length > 38 ? `${s.slice(0, 38)}…` : s);
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -79,6 +79,7 @@ export function SuggestionTray({ projects, startOpen = false }: { projects: Proj
       </button>
       {open && (
         <div className="tray-sugg">
+          <BulkBar list={list} className="tray-bulk" />
           {list.map((s) => {
             const p = s.payload as SuggestedTask;
             const proj = p.projectId ? projects.find((x) => x.id === p.projectId) : undefined;

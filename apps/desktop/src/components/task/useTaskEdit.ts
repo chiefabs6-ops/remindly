@@ -1,10 +1,10 @@
 // Every save the quick panel and the full page can make, built on the newest copy of the task.
-import { addDays, type Priority, type TaskDetail, type TaskInput, type TaskStatus } from "@tether/core";
+import { addDays, type Priority, type Repeat, type TaskDetail, type TaskInput, type TaskStatus } from "@tether/core";
 import { api } from "../../lib/api";
 import { todayIso } from "../../lib/format";
 import { keys, queryClient, useAction } from "../../lib/queries";
 import { useToast } from "../ui/Toast";
-import { completeTask, patchTask, rescheduleTask } from "../../lib/taskActions";
+import { completeTask, patchTask, rescheduleTask, shortDay } from "../../lib/taskActions";
 
 export function useTaskEdit(t: TaskDetail) {
   const toast = useToast();
@@ -17,6 +17,7 @@ export function useTaskEdit(t: TaskDetail) {
   const resched = useAction((date: string | null) => rescheduleTask(t.id, date));
   const remind = useAction((iso: string) => api.remindAt(t.id, iso));
   const setReminder = useAction((r: { lead: number | null; repeat: boolean }) => api.setReminder(t.id, r.lead, r.repeat));
+  const setRepeat = useAction((r: Repeat | null) => api.setRepeat(t.id, r));
   const duplicate = useAction(() => api.duplicate(t.id));
   const remove = useAction(() => api.deleteTask(t.id));
 
@@ -30,7 +31,7 @@ export function useTaskEdit(t: TaskDetail) {
     }
     // Undo puts back the old status and reopens exactly the subtasks this completed.
     const undo = await completeTask(t.id);
-    toast(`Completed “${was.title}”`, () => undo().then(refresh));
+    toast(undo.nextDue ? `Done. Next one due ${shortDay(undo.nextDue)}` : `Completed “${was.title}”`, () => undo().then(refresh));
   });
 
   const reschedule = (date: string | null) => {
@@ -44,9 +45,9 @@ export function useTaskEdit(t: TaskDetail) {
   };
   const today = todayIso();
   const busy = patch.isPending || setStatus.isPending || resched.isPending || toggle.isPending;
-  const error = toggle.error ?? duplicate.error ?? remove.error ?? patch.error ?? setStatus.error ?? resched.error ?? remind.error ?? setReminder.error;
+  const error = toggle.error ?? duplicate.error ?? remove.error ?? patch.error ?? setStatus.error ?? resched.error ?? remind.error ?? setReminder.error ?? setRepeat.error;
   return {
-    done, busy, error, latest, patch, setStatus, toggle, reschedule, remind, setReminder, duplicate, remove, saveTags,
+    done, busy, error, latest, patch, setStatus, toggle, reschedule, remind, setReminder, setRepeat, duplicate, remove, saveTags,
     setPriority: (p: Priority) => patch.mutate({ priority: p }),
     tomorrow: () => reschedule(addDays(today, 1)),
     nextWeek: () => reschedule(addDays(today, 7)),

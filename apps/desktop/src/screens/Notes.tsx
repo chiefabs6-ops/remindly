@@ -6,6 +6,7 @@ import { api, errorMessage } from "../lib/api";
 import { toneDot } from "../lib/colors";
 import { dueLabel } from "../lib/format";
 import { keys, queryClient, useAction, useMeetingForNote, useNotes, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
+import { SkeletonRows } from "../components/Skeleton";
 import { Popover, usePopover } from "../components/ui/Popover";
 
 const KINDS: Record<NoteKind, string> = { general: "General", meeting: "Meeting", idea: "Idea", research: "Research", work: "Work" };
@@ -334,8 +335,9 @@ export function NotesScreen() {
             ))}
           </div>
         </div>
+        {notes.isPending && <SkeletonRows n={5} label="Loading notes" />}
         <ul aria-label="Notes">
-          {list.length === 0 && !notes.isLoading && (
+          {list.length === 0 && !notes.isPending && (
             <li className="nt-empty">{q || kind ? "No notes match." : "No notes yet. Start one with New note."}</li>
           )}
           {list.map((n) => {

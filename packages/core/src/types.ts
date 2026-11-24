@@ -79,6 +79,18 @@ export interface Task {
   nextReminder: string | null;
   /** Snoozed from a notification until this time (RFC 3339 UTC); the task's other reminders wait until then. */
   snoozedUntil: string | null;
+  /** Repeats: completing it creates the next copy, due `every` x `unit` after the completion date. */
+  repeat: Repeat | null;
+  /** The copy made when this task was last completed (if any). */
+  repeatNextId: string | null;
+}
+
+/** "weekday" = working day (Monday to Friday). */
+export type RepeatUnit = "day" | "weekday" | "week" | "month";
+
+export interface Repeat {
+  every: number;
+  unit: RepeatUnit;
 }
 
 export interface HistoryEntry {
@@ -262,6 +274,8 @@ export interface Dashboard {
 export interface SearchResults {
   tasks: Task[];
   notes: Note[];
+  /** Projects whose name contains the query (not archived). */
+  projects: Project[];
 }
 
 export interface ApiInfo {

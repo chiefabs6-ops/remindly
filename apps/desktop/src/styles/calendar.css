@@ -81,3 +81,6 @@
 /* A timed task whose due time has passed. */
 .cal-page .ev.task.od { background: var(--pill-negative-bg); color: var(--pill-negative-ink); border-left-color: var(--negative); }
 .mg .mcount { text-decoration: none; }
+/* Drag and drop: the day a dragged task would land on. */
+.cw .ad.drop, .cw .dcol.drop, .mg .mc.drop { background: color-mix(in srgb, var(--today) 10%, transparent); box-shadow: inset 0 0 0 2px var(--today); }
+.cal-page .adchip[draggable="true"], .cw .ev[draggable="true"] { cursor: grab; }

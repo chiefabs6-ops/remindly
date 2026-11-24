@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { CalendarDays, FolderKanban, Inbox, LayoutDashboard, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
 import type { TaskStatus } from "@tether/core";
-import { api, onNavigate } from "../lib/api";
+import { api, errorMessage, onNavigate } from "../lib/api";
 import { isPopoutWindow } from "../lib/taskActions";
 import { toneDot } from "../lib/colors";
 import { useInboxCounts } from "../lib/inboxCount";
-import { useAction, useBackendSync, useProjects, useSettings, useTasks } from "../lib/queries";
-import { ToastProvider } from "./ui/Toast";
+import { useAction, useBackendSync, useInvalidateAll, useProjects, useSettings, useTasks } from "../lib/queries";
+import { patchTask } from "../lib/taskActions";
+import { CommandPalette } from "./CommandPalette";
+import { TASK_DND } from "./TaskRow";
+import { ToastProvider, useToast } from "./ui/Toast";
 
 function NavItem({ to, icon, label, count, plainCount }: { to: string; icon: ReactNode; label: string; count?: number; plainCount?: number }) {
   return (
@@ -53,14 +56,30 @@ export function useTheme() {
 /** Top-level tasks that are still to do; matches the "All open" tab in My Tasks. */
 const OPEN_FILTER = { statuses: ["inbox", "not_started", "in_progress", "waiting"] as TaskStatus[], topLevelOnly: true };
 
+const PROJECT_DND = "application/x-tether-project";
+const hasType = (e: DragEvent, type: string) => Array.from(e.dataTransfer?.types ?? []).includes(type);
+
 export function Layout() {
+  // The toast provider wraps the whole app frame so the sidebar can show toasts too.
+  return (
+    <ToastProvider>
+      <Frame />
+    </ToastProvider>
+  );
+}
+
+function Frame() {
   useBackendSync();
   const theme = useTheme();
   const setTheme = useAction((t: string) => api.setSetting("theme", t));
   const projects = useProjects();
   const navigate = useNavigate();
-  const searchRef = useRef<HTMLInputElement>(null);
-  const [search, setSearch] = useState("");
+  const toast = useToast();
+  const invalidate = useInvalidateAll();
+  const [palette, setPalette] = useState(false);
+  // Sidebar drag and drop: which project link is under the pointer, and which project is being dragged.
+  const [overProject, setOverProject] = useState<string | null>(null);
+  const [dragProject, setDragProject] = useState<string | null>(null);
   // Inbox badge: Chrome captures and other non-Claude suggestions, plus unsorted (inbox-status) tasks.
   // Claude task suggestions are counted in My Tasks' tray instead.
   const inboxCount = useInboxCounts().total;
@@ -85,7 +104,7 @@ export function Layout() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        searchRef.current?.focus();
+        setPalette((o) => !o);
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
@@ -100,6 +119,43 @@ export function Layout() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [navigate]);
+
+  const closePalette = () => setPalette(false);
+
+  const dropOnProject = async (e: DragEvent, target: { id: string; name: string }) => {
+    setOverProject(null);
+    const taskId = e.dataTransfer.getData(TASK_DND);
+    const dragged = e.dataTransfer.getData(PROJECT_DND) || dragProject;
+    const list = projects.data ?? [];
+    if (taskId) {
+      e.preventDefault();
+      try {
+        const before = await api.task(taskId);
+        if (before.projectId === target.id) return;
+        await patchTask(taskId, { projectId: target.id });
+        invalidate();
+        toast(`Moved to ${target.name}`, async () => {
+          await patchTask(taskId, { projectId: before.projectId });
+          invalidate();
+        });
+      } catch (err) {
+        toast(errorMessage(err));
+      }
+    } else if (dragged && dragged !== target.id) {
+      e.preventDefault();
+      setDragProject(null);
+      const at = list.findIndex((p) => p.id === target.id);
+      if (at < 0 || !list.some((p) => p.id === dragged)) return;
+      const ids = list.map((p) => p.id).filter((id) => id !== dragged);
+      ids.splice(at, 0, dragged);
+      try {
+        await api.reorderProjects(ids);
+        invalidate();
+      } catch (err) {
+        toast(errorMessage(err));
+      }
+    }
+  };
 
   const icon = { size: 16, strokeWidth: 1.6 };
   const dark = document.documentElement.getAttribute("data-theme") === "dark";
@@ -124,8 +180,23 @@ export function Layout() {
         </div>
         <div className="flex min-h-0 flex-col gap-px overflow-y-auto">
           {projects.data?.map((p) => (
-            <NavLink key={p.id} to={`/projects/${p.id}`}
-              className={({ isActive }) => `flex h-8 items-center gap-2.5 rounded-[6px] px-2.5 ${isActive ? "bg-active text-ink" : "text-[color:var(--muted)] hover:bg-active/60 hover:text-ink"}`}>
+            <NavLink key={p.id} to={`/projects/${p.id}`} data-project={p.id}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData(PROJECT_DND, p.id);
+                setDragProject(p.id);
+              }}
+              onDragEnd={() => { setDragProject(null); setOverProject(null); }}
+              onDragOver={(e) => {
+                if (!hasType(e, TASK_DND) && !(dragProject && hasType(e, PROJECT_DND))) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (overProject !== p.id) setOverProject(p.id);
+              }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverProject((o) => (o === p.id ? null : o)); }}
+              onDrop={(e) => void dropOnProject(e, p)}
+              className={({ isActive }) => `flex h-8 items-center gap-2.5 rounded-[6px] px-2.5 ${overProject === p.id ? "bg-active ring-2 ring-[var(--today)] ring-inset" : ""} ${dragProject === p.id ? "opacity-50" : ""} ${isActive ? "bg-active text-ink" : "text-[color:var(--muted)] hover:bg-active/60 hover:text-ink"}`}>
               <span className="size-2 flex-none rounded-[2px]" style={{ background: toneDot(p.color) }} />
               <span className="flex-1 truncate">{p.name}</span>
               <span className="num text-xs">{p.openTasks || ""}</span>
@@ -146,21 +217,14 @@ export function Layout() {
       {/* Top bar, on the same tinted frame as the sidebar (no rule between them). */}
       <div className="flex min-w-0 items-center gap-3 pr-4 pl-2 max-lg:px-4">
         <span className="flex items-center gap-2 font-semibold lg:hidden"><Mark /> Tether</span>
-        <form
-          role="search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            navigate(`/tasks?q=${encodeURIComponent(search)}`);
-          }}
-          className="relative w-full max-w-[420px] max-lg:hidden"
-        >
-          <Search size={14} className="pointer-events-none absolute top-[9px] left-2.5 text-faint" />
-          <label htmlFor="search" className="sr-only">Search tasks and notes</label>
-          <input id="search" ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tasks and notes" className="field h-8 border-line pl-8 text-[13px]" />
-          <kbd className="pointer-events-none absolute top-[7px] right-2.5 text-xs text-faint">Ctrl K</kbd>
-        </form>
-        <NavLink to="/settings" aria-label="Settings" title="Settings" className="btn btn-ghost ml-auto px-2 lg:hidden"><Settings size={16} /></NavLink>
+        <button type="button" aria-haspopup="dialog" aria-label="Search tasks, notes and projects" onClick={() => setPalette(true)}
+          className="field relative flex h-8 w-full max-w-[420px] items-center border-line pl-8 text-left text-[13px] text-faint max-lg:hidden">
+          <Search size={14} className="pointer-events-none absolute top-[8px] left-2.5 text-faint" aria-hidden />
+          <span className="flex-1 truncate">Search tasks, notes and projects</span>
+          <kbd className="text-xs text-faint">Ctrl K</kbd>
+        </button>
+        <button type="button" aria-haspopup="dialog" aria-label="Open search" title="Search (Ctrl+K)" onClick={() => setPalette(true)} className="btn btn-ghost ml-auto px-2 lg:hidden"><Search size={16} /></button>
+        <NavLink to="/settings" aria-label="Settings" title="Settings" className="btn btn-ghost px-2 lg:hidden"><Settings size={16} /></NavLink>
         <button className="btn btn-primary h-8 max-lg:ml-0 lg:ml-auto flex-none whitespace-nowrap" onClick={() => { navigate("/tasks"); setTimeout(() => document.getElementById("quick-add")?.focus(), 50); }}>
           <Plus size={14} /> New task
         </button>
@@ -168,9 +232,7 @@ export function Layout() {
 
       {/* The sheet: where the work sits. */}
       <main className="mr-2 mb-2 min-w-0 overflow-y-auto rounded-[14px] border border-line bg-surface shadow-[var(--sheet-light)] max-lg:m-0 max-lg:rounded-none max-lg:border-x-0">
-        <ToastProvider>
-          <Outlet />
-        </ToastProvider>
+        <Outlet />
       </main>
 
       {/* Phone/tablet: the sidebar folds into a bottom bar. */}
@@ -191,6 +253,7 @@ export function Layout() {
           </NavLink>
         ))}
       </nav>
+      {palette && <CommandPalette onClose={closePalette} />}
     </div>
   );
 }

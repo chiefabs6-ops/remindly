@@ -25,7 +25,7 @@ const isOpen = (s: TaskStatus) => s !== "completed" && s !== "archived";
  * Complete a task and its open subtasks. Returns an undo that puts back the task's own
  * status and reopens exactly the subtasks this completed (each with its old status).
  */
-export async function completeTask(id: string): Promise<() => Promise<void>> {
+export async function completeTask(id: string): Promise<(() => Promise<void>) & { nextDue: string | null }> {
   const before = await api.task(id);
   // The backend cascade closes every open descendant, so remember them at every level.
   const reopen: { id: string; status: TaskStatus }[] = [];
@@ -36,11 +36,22 @@ export async function completeTask(id: string): Promise<() => Promise<void>> {
     }
   };
   await collect(before.subtasks);
-  await api.setStatus(id, "completed", true);
-  return async () => {
+  const done = await api.setStatus(id, "completed", true);
+  // A repeating task leaves its next copy behind; the toast names its due date.
+  const nextDue = done.repeatNextId ? (await api.task(done.repeatNextId)).dueDate : null;
+  const undo = async () => {
     await api.setStatus(id, isOpen(before.status) ? before.status : "not_started", false);
     for (const s of reopen) await api.setStatus(s.id, s.status, false);
   };
+  return Object.assign(undo, { nextDue });
+}
+
+/** "Tue 2 Dec" */
+export function shortDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  const part = (o: Intl.DateTimeFormatOptions) => dt.toLocaleDateString("en-IE", o);
+  return `${part({ weekday: "short" })} ${d} ${part({ month: "short" })}`;
 }
 
 /** Move a task to another day, keeping its time; undo restores the exact old date and time. */

@@ -5,13 +5,14 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Code2, GitBranch, StickyNote } from "lucide-react";
 import { addDays, relativeDayLabel, type Priority, type Task, type TaskStatus } from "@tether/core";
 import { QuickAdd } from "../components/QuickAdd";
+import { SkeletonPage, SkeletonRows } from "../components/Skeleton";
 import { ListRow } from "../components/TaskRow";
 import { useToast } from "../components/ui/Toast";
 import { api, errorMessage } from "../lib/api";
 import { toneDot } from "../lib/colors";
 import { ago, dueTone, todayIso } from "../lib/format";
 import { useInvalidateAll, useNotes, useProjects, useTasks } from "../lib/queries";
-import { completeTask, patchTask, rescheduleTask } from "../lib/taskActions";
+import { completeTask, patchTask, rescheduleTask, shortDay } from "../lib/taskActions";
 import { useLinkedProjectIds, useOverdueByProject } from "./Projects";
 
 const OPEN: TaskStatus[] = ["inbox", "not_started", "in_progress", "waiting"];
@@ -69,7 +70,7 @@ export function ProjectPage() {
   const complete = (t: Task) => {
     void run(async () => {
       const undo = await completeTask(t.id);
-      toast(`Completed “${trunc(t.title)}”`, () => run(undo));
+      toast(undo.nextDue ? `Done. Next one due ${shortDay(undo.nextDue)}` : `Completed “${trunc(t.title)}”`, () => run(undo));
     });
   };
   const reschedule = (t: Task, date: string | null) => {
@@ -111,7 +112,7 @@ export function ProjectPage() {
 
       <div className="rp">
         <div className="pj-back"><Link to="/projects" className="btn btn-sm btn-ghost"><ChevronLeft size={14} aria-hidden="true" />Projects</Link></div>
-        {projects.isPending ? null : !project ? (
+        {projects.isPending ? <SkeletonPage lines={3} label="Loading project" /> : !project ? (
           <div className="pj-empty">
             <h1>Project not found</h1>
             <p>It may have been archived or deleted.</p>
@@ -140,8 +141,10 @@ export function ProjectPage() {
                   <div className="pj-add"><QuickAdd projects={list} projectId={project.id} /></div>
                   {tasks.isError ? (
                     <p className="pj-none">Couldn’t load tasks: {errorMessage(tasks.error)}</p>
+                  ) : tasks.isPending ? (
+                    <SkeletonRows n={3} label="Loading tasks" />
                   ) : groups.length === 0 ? (
-                    <p className="pj-none">No open tasks.</p>
+                    <p className="pj-none">No tasks in this project. Add one above.</p>
                   ) : groups.map((g) => (
                     <div key={g.key} className="pj-grp">
                       <h3 className={`gh ${g.late ? "od" : ""}`}>{g.label}<span className="c num">{g.items.length}</span></h3>

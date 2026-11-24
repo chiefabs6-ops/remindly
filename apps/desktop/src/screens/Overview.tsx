@@ -11,7 +11,7 @@ import { toneDot } from "../lib/colors";
 import { longDate, todayIso } from "../lib/format";
 import { useInboxCounts } from "../lib/inboxCount";
 import { DEFAULT_RULES, dayMoments, type MomentKind, type ReminderRules } from "../lib/reminderPlan";
-import { completeTask, patchTask, rescheduleTask } from "../lib/taskActions";
+import { completeTask, patchTask, rescheduleTask, shortDay } from "../lib/taskActions";
 import { useAiEnabled, useDashboard, useInvalidateAll, useNotes, useProjects, useTasks } from "../lib/queries";
 
 /** Same filter as the sidebar count, so both share one cached query. */
@@ -126,7 +126,7 @@ export function OverviewScreen() {
     if (t.status === "completed") { void run(() => api.setStatus(t.id, "not_started", false)); return; }
     void run(async () => {
       const undo = await completeTask(t.id);
-      toast(`Completed “${trunc(t.title)}”`, () => run(undo));
+      toast(undo.nextDue ? `Done. Next one due ${shortDay(undo.nextDue)}` : `Completed “${trunc(t.title)}”`, () => run(undo));
     });
   };
   const reschedule = (t: Task, date: string | null) =>
@@ -198,7 +198,7 @@ export function OverviewScreen() {
                   </ol>
                 )}
               </>
-            ) : plan.isError ? <p className="od">{errorMessage(plan.error)}</p> : <div className="ov-skel" aria-busy="true" />}
+            ) : plan.isError ? <p className="od">{errorMessage(plan.error)}</p> : <div className="ov-skel skel" aria-busy="true" />}
           </div>
         </section>
       )}
@@ -207,7 +207,7 @@ export function OverviewScreen() {
         <div>
           <Card title="Today’s focus" count={focus.length} link={{ to: "/tasks", text: "Open My Tasks" }} label="Today's focus">
             <div className="card-b" role="list">
-              {!d ? <div className="ov-skel" aria-busy="true" />
+              {!d ? <div className="ov-skel skel" aria-busy="true" />
                 : focus.length === 0 ? <p className="ov-empty">Nothing due today.</p>
                 : focus.map((t) => (
                   <ListRow key={t.id} task={t} project={t.projectId ? projectById.get(t.projectId) : undefined}

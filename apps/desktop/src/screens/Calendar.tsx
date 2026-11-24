@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Bell, ChevronLeft, ChevronRight } from "lucide-react";
-import { addDays, dayDiff, isoDate, type Project, type Task, type TaskStatus } from "@tether/core";
+import { addDays, dayDiff, isoDate, relativeDayLabel, type Project, type Task, type TaskStatus } from "@tether/core";
+import { TASK_DND } from "../components/TaskRow";
 import { Segmented } from "../components/ui/Controls";
 import { Popover, usePopover } from "../components/ui/Popover";
+import { useToast } from "../components/ui/Toast";
 import { errorMessage } from "../lib/api";
 import { toneDot } from "../lib/colors";
 import { dueTone, longDate, todayIso } from "../lib/format";
-import { useProjects, useTasks } from "../lib/queries";
+import { useInvalidateAll, useProjects, useTasks } from "../lib/queries";
+import { rescheduleTask } from "../lib/taskActions";
 
 /** Everything with a due date except archived tasks; finished ones stay visible, dimmed and struck through. */
 const STATUSES: TaskStatus[] = ["inbox", "not_started", "in_progress", "waiting", "completed"];
@@ -51,12 +54,18 @@ interface Ctx {
   today: string;
   projectOf: (t: Task) => Project | undefined;
   open: (id: string) => void;
+  /** Drag a task chip or block (not finished ones). */
+  dragProps: (t: Task) => { draggable: boolean; onDragStart?: (e: DragEvent) => void; onDragEnd?: () => void };
+  /** Make a day (by ISO date) accept dropped tasks. */
+  dropProps: (date: string) => { onDragOver: (e: DragEvent) => void; onDragLeave: (e: DragEvent) => void; onDrop: (e: DragEvent) => void };
+  /** The day under a dragged task, for the highlight. */
+  over: string | null;
 }
 
 function Chip({ t, ctx, showTime }: { t: Task; ctx: Ctx; showTime?: boolean }) {
   const cls = isDone(t) ? "done" : dueTone(t, ctx.today) === "overdue" ? "od" : "";
   return (
-    <a className={`adchip ${cls}`} href={`#/task/${t.id}`} title={t.title}
+    <a className={`adchip ${cls}`} href={`#/task/${t.id}`} title={t.title} {...ctx.dragProps(t)}
       onClick={(e) => { e.preventDefault(); ctx.open(t.id); }}>
       <i className="dot" style={{ background: toneDot(ctx.projectOf(t)?.color) }} />
       <span>{showTime && t.dueTime && <span className="num">{t.dueTime} </span>}{t.title}</span>
@@ -138,7 +147,7 @@ function WeekGrid({ days, tasks, ctx }: { days: string[]; tasks: Task[]; ctx: Ct
       })}
       <div className="adl">Due</div>
       {days.map((s) => (
-        <div key={s} className="ad" data-date={s} aria-label={`Due ${longDate(s)}`}>
+        <div key={s} className={`ad ${ctx.over === s ? "drop" : ""}`} data-date={s} aria-label={`Due ${longDate(s)}`} {...ctx.dropProps(s)}>
           <ChipList items={tasks.filter((t) => t.dueDate === s && !t.dueTime)} ctx={ctx} label={longDate(s)} />
         </div>
       ))}
@@ -146,10 +155,11 @@ function WeekGrid({ days, tasks, ctx }: { days: string[]; tasks: Task[]; ctx: Ct
         {Array.from({ length: end - start }, (_, i) => <div key={i} className="num">{i ? `${String(start + i).padStart(2, "0")}:00` : ""}</div>)}
       </div>
       {days.map((s) => (
-        <div key={s} className={`dcol ${s === ctx.today ? "td" : ""}`} data-date={s} aria-label={`Timed ${longDate(s)}`} style={{ height: (end - start) * PX }}>
+        <div key={s} className={`dcol ${s === ctx.today ? "td" : ""} ${ctx.over === s ? "drop" : ""}`} data-date={s} aria-label={`Timed ${longDate(s)}`} style={{ height: (end - start) * PX }} {...ctx.dropProps(s)}>
           {place(timed.filter((t) => t.dueDate === s), start).map(({ t, top, height, lane, lanes }) => (
             <a key={t.id} className={`ev task ${t.priority === 3 ? "hi" : ""} ${isDone(t) ? "done" : dueTone(t, ctx.today) === "overdue" ? "od" : ""}`} href={`#/task/${t.id}`}
               style={{ top, height, left: `calc(${(lane / lanes) * 100}% + 4px)`, right: `calc(${((lanes - lane - 1) / lanes) * 100}% + 4px)` }}
+              {...ctx.dragProps(t)}
               onClick={(e) => { e.preventDefault(); ctx.open(t.id); }}>
               <b>{t.title}</b>
               <small className="num">Due {t.dueTime}</small>
@@ -194,7 +204,7 @@ function MonthGrid({ cells, month, tasks, ctx }: { cells: string[]; month: strin
       {cells.map((s) => {
         const items = tasks.filter((t) => t.dueDate === s).sort(byTime);
         return (
-          <div key={s} className={`mc ${s.slice(0, 7) !== month ? "out" : ""} ${s === ctx.today ? "td" : ""}`} data-date={s}>
+          <div key={s} className={`mc ${s.slice(0, 7) !== month ? "out" : ""} ${s === ctx.today ? "td" : ""} ${ctx.over === s ? "drop" : ""}`} data-date={s} {...ctx.dropProps(s)}>
             <b className="num">{parse(s).getDate()}</b>
             {items.length > 0 && <a className="mcount num" href={`#/calendar?week=${mondayOf(s)}`} aria-label={`${items.length} due ${longDate(s)}: show that week`}>{items.length}</a>}
             <div className="mchips"><ChipList items={items} ctx={ctx} showTime label={longDate(s)} /></div>
@@ -216,6 +226,10 @@ export function CalendarScreen() {
   const navigate = useNavigate();
   const today = todayIso();
   const projects = useProjects();
+  const toast = useToast();
+  const invalidate = useInvalidateAll();
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
 
   const view: View = params.get("view") === "month" ? "month" : "week";
   const weekParam = params.get("week");
@@ -241,6 +255,49 @@ export function CalendarScreen() {
     today,
     projectOf: (t) => (t.projectId ? projectById.get(t.projectId) : undefined),
     open: (id) => navigate(window.innerWidth < 1024 ? `/task/${id}` : `/tasks?task=${id}`),
+    over,
+    dragProps: (t) =>
+      isDone(t)
+        ? { draggable: false }
+        : {
+            draggable: true,
+            onDragStart: (e) => {
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData(TASK_DND, t.id);
+              e.dataTransfer.setData("text/plain", t.id);
+              setDragId(t.id);
+            },
+            onDragEnd: () => { setDragId(null); setOver(null); },
+          },
+    dropProps: (date) => ({
+      onDragOver: (e) => {
+        if (!dragId && !Array.from(e.dataTransfer?.types ?? []).includes(TASK_DND)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (over !== date) setOver(date);
+      },
+      onDragLeave: (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver((o) => (o === date ? null : o));
+      },
+      onDrop: (e) => {
+        const id = e.dataTransfer.getData(TASK_DND) || dragId;
+        setOver(null);
+        setDragId(null);
+        if (!id) return;
+        e.preventDefault();
+        const moved = tasks.find((t) => t.id === id);
+        if (moved && (moved.dueDate === date || isDone(moved))) return;
+        void (async () => {
+          try {
+            const undo = await rescheduleTask(id, date);
+            invalidate();
+            toast(`Moved to ${relativeDayLabel(date, today)}`, async () => { await undo(); invalidate(); });
+          } catch (err) {
+            toast(errorMessage(err));
+          }
+        })();
+      },
+    }),
   };
 
   const go = (next: Record<string, string>) => setParams(next, { replace: true });
@@ -288,7 +345,7 @@ export function CalendarScreen() {
           <button type="button" className="btn mt-3" onClick={() => void tasksQ.refetch()}>Retry</button>
         </div>
       ) : !tasksQ.data ? (
-        <div className="cal-skel" aria-busy="true" />
+        <div className="cal-skel skel" aria-busy="true" />
       ) : view === "month" ? (
         <MonthGrid cells={cells} month={month} tasks={tasks} ctx={ctx} />
       ) : shown.length === 0 ? (

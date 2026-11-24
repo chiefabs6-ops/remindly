@@ -146,6 +146,7 @@ export const api = {
   restoreTask: (id: string) => call<Task>("task_restore", { id }),
   reorderTasks: (ids: string[]) => call<void>("task_reorder", { ids }),
   setReminder: (id: string, lead: number | null, repeat: boolean) => call<Task>("task_set_reminder", { id, lead, repeat }),
+  setRepeat: (id: string, repeat: import("@tether/core").Repeat | null) => call<Task>("task_set_repeat", { id, repeat }),
   mergeSuggestion: (id: string, taskId: string) => call<{ kind: string; id: string }>("suggestion_merge", { id, taskId }),
   addLink: (id: string, url: string, title?: string | null) =>
     call<TaskLink>("task_link_add", { id, url, title: title ?? null }),
@@ -154,6 +155,7 @@ export const api = {
   openTaskWindow: (id: string) => call<void>("task_open_window", { id }),
 
   projects: (includeArchived = false) => call<Project[]>("projects_list", { includeArchived }),
+  reorderProjects: (ids: string[]) => call<void>("projects_reorder", { ids }),
   createProject: (input: ProjectInput) => call<Project>("project_create", { input }),
   updateProject: (id: string, input: ProjectInput) => call<Project>("project_update", { id, input }),
   archiveProject: (id: string, archived: boolean) =>
@@ -201,6 +203,8 @@ export const api = {
   aiSettings: () => call<AiSettings>("ai_settings_get"),
   setAiSettings: (value: AiSettings) => call<AiSettings>("ai_settings_set", { value }),
   aiStatus: () => call<AiStatus>("ai_status"),
+  /** One short round trip to the model ("Test connection"). */
+  aiTest: () => call<AiResult<boolean>>("ai_test"),
   aiExtract: (text: string, pageTitle: string | null) => call<AiResult<Extracted>>("ai_extract", { text, pageTitle }),
   aiBreakdown: (id: string) => call<AiResult<string[]>>("ai_breakdown", { id }),
   planDay: () => call<DayPlan>("plan_day"),

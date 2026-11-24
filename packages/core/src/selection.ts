@@ -43,16 +43,104 @@ function tidy(s: string): string {
     .replace(/[\s.,;:!?]+$/, "");
 }
 
+const DAY = "(?:today|yesterday|mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)";
+const CHAT_TIME = String.raw`(?:${DAY},?\s+)?\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?`;
+// A line that is only a time, optionally wrapped in commas: ", 10:12," / "Yesterday 10:12".
+const TIME_LINE = new RegExp(String.raw`^[,\s]*${CHAT_TIME}[,\s]*$`, "i");
+// "Anna Murphy,10:12, Can you send..." on one line.
+const INLINE_HEADER = new RegExp(String.raw`^(\p{L}[\p{L}'’.\- ]{0,40}?)\s*,\s*${CHAT_TIME}\s*,\s*(.+)$`, "iu");
+const NAME_LINE = /^\p{L}[\p{L}'’.\- ]{0,40}$/u;
+
+interface ChatMessage {
+  name: string;
+  text: string;
+}
+
+function isNameLine(line: string): boolean {
+  return NAME_LINE.test(line) && !/[.!?]$/.test(line) && line.split(" ").length <= 5;
+}
+
+/** Parse Google Chat style text into messages, or null when it is not a chat transcript. */
+function parseChat(text: string): { before: string[]; messages: ChatMessage[] } | null {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/[ \t]+/g, " ").trim());
+  const before: string[] = [];
+  const messages: ChatMessage[] = [];
+  let name: string | null = null;
+  let headers = 0;
+  let firstName = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    const inline = INLINE_HEADER.exec(line);
+    if (inline) {
+      headers++;
+      name = inline[1].trim();
+      if (headers === 1) firstName = name;
+      messages.push({ name, text: inline[2].trim() });
+      continue;
+    }
+    let j = i + 1;
+    while (j < lines.length && !lines[j]) j++;
+    if (isNameLine(line) && j < lines.length && TIME_LINE.test(lines[j])) {
+      headers++;
+      name = line;
+      if (headers === 1) firstName = name;
+      i = j;
+      continue;
+    }
+    if (name) messages.push({ name, text: line });
+    else before.push(line);
+  }
+  // One header is enough only when it looks like a person ("Anna Murphy", "You"); a lone "Agenda / 10:30" is not chat.
+  const personLike = firstName.split(" ").length >= 2 || firstName.toLowerCase() === "you";
+  return headers >= 2 || (headers === 1 && personLike) ? { before, messages } : null;
+}
+
+/**
+ * Rewrite Google Chat style text ("Anna Murphy" / "10:12" / message) as one line per
+ * message ("Anna Murphy: message") with the times dropped. Text that has no
+ * name + time header passes through unchanged.
+ */
+export function cleanChatText(text: string): string {
+  const chat = parseChat(text);
+  if (!chat) return text;
+  return [...chat.before, ...chat.messages.map((m) => `${m.name}: ${m.text}`)].join("\n");
+}
+
+/** Keep line breaks; collapse spaces within a line, trim lines, and squash long blank runs. */
+function normalizeLines(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function suggestFromSelection(
   selection: string,
   page: { url?: string | null; title?: string | null } = {},
   ref: Date = new Date(),
 ): SelectionSuggestion {
-  const original = selection.replace(/\s+/g, " ").trim().slice(0, MAX_SELECTION);
+  const chat = parseChat(selection);
+  const original = normalizeLines(chat ? cleanChatText(selection) : selection).slice(0, MAX_SELECTION).trim();
   const confidence: Record<string, number> = {};
 
-  // Use the first sentence (or line) for the title; keep everything as the selection.
-  const firstSentence = original.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? original;
+  // Use the first sentence (or first message) for the title; keep everything as the selection.
+  let firstSentence: string;
+  let rest: string;
+  if (chat && chat.before.length === 0 && chat.messages.length > 0) {
+    const first = chat.messages[0].text.replace(/\s+/g, " ");
+    firstSentence = first.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? first;
+    const tail = [first.slice(firstSentence.length).trim(), ...chat.messages.slice(1).map((m) => `${m.name}: ${m.text}`)];
+    rest = tail.filter(Boolean).join("\n");
+  } else {
+    const flat = original.replace(/\s+/g, " ");
+    firstSentence = flat.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? flat;
+    // Same split on the line-preserving text, so the rest keeps its line breaks.
+    const raw = original.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? original;
+    rest = original.slice(raw.length).trim();
+  }
   let text = firstSentence;
 
   let dueDate: string | null = null;
@@ -80,7 +168,6 @@ export function suggestFromSelection(
     confidence.title = 0.4;
   }
   // The full text is kept once, as the selection. The description holds only what the title leaves out.
-  const rest = original.slice(firstSentence.length).trim();
   if (rest && !description) description = rest;
 
   return {

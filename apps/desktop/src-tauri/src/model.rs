@@ -151,6 +151,91 @@ pub struct Task {
     pub next_reminder: Option<String>,
     /// Snoozed from a notification until this time (RFC 3339 UTC): the task's other reminders wait until then.
     pub snoozed_until: Option<String>,
+    /// Repeats: completing it creates the next copy, due `every` x `unit` after the completion date.
+    pub repeat: Option<Repeat>,
+    /// The copy made when this task was last completed (if any).
+    pub repeat_next_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RepeatUnit {
+    Day,
+    /// Working day (Monday to Friday).
+    Weekday,
+    Week,
+    Month,
+}
+
+impl RepeatUnit {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RepeatUnit::Day => "day",
+            RepeatUnit::Weekday => "weekday",
+            RepeatUnit::Week => "week",
+            RepeatUnit::Month => "month",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "day" => Some(RepeatUnit::Day),
+            "weekday" => Some(RepeatUnit::Weekday),
+            "week" => Some(RepeatUnit::Week),
+            "month" => Some(RepeatUnit::Month),
+            _ => None,
+        }
+    }
+}
+
+/// "Every 2 weeks" = `Repeat { every: 2, unit: Week }`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Repeat {
+    pub every: u32,
+    pub unit: RepeatUnit,
+}
+
+impl Repeat {
+    pub const MAX_EVERY: u32 = 365;
+
+    /// Plain words for history: "every day", "every 2 weeks", "every working day".
+    pub fn label(self) -> String {
+        let unit = match self.unit {
+            RepeatUnit::Weekday => "working day",
+            u => u.as_str(),
+        };
+        if self.every == 1 {
+            format!("every {unit}")
+        } else {
+            format!("every {} {unit}s", self.every)
+        }
+    }
+
+    /// The due date of the next copy, counted from `from` (the completion date).
+    pub fn next_due(self, from: NaiveDate) -> NaiveDate {
+        use chrono::{Datelike, Days, Months, Weekday};
+        let n = self.every.clamp(1, Self::MAX_EVERY);
+        match self.unit {
+            RepeatUnit::Day => from + Days::new(n as u64),
+            RepeatUnit::Week => from + Days::new(7 * n as u64),
+            // Adds months and keeps the day where it can (31 Jan + 1 month = 28/29 Feb).
+            RepeatUnit::Month => from
+                .checked_add_months(Months::new(n))
+                .unwrap_or(from + Days::new(30 * n as u64)),
+            RepeatUnit::Weekday => {
+                let mut d = from;
+                let mut left = n;
+                while left > 0 {
+                    d = d + Days::new(1);
+                    if !matches!(d.weekday(), Weekday::Sat | Weekday::Sun) {
+                        left -= 1;
+                    }
+                }
+                d
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -14,6 +14,7 @@ import { ReminderCard } from "../components/task/ReminderCard";
 import { Subtasks } from "../components/task/Subtasks";
 import { TitleBlock } from "../components/task/TitleBlock";
 import { useTaskEdit } from "../components/task/useTaskEdit";
+import { SkeletonPage } from "../components/Skeleton";
 import { usePopover } from "../components/ui/Popover";
 import { ReschedulePopover } from "../components/ui/Reschedule";
 import { api, errorMessage } from "../lib/api";
@@ -76,7 +77,7 @@ function Body({ t }: { t: TaskDetail }) {
       <div className="tp">
         <div className="tp-head">
           {t.parentId && <p className="td-parent">Subtask of <Link className="underline" to={`/task/${t.parentId}`}>the parent task</Link></p>}
-          <TitleBlock t={t} ed={ed} as="h1" />
+          <TitleBlock t={t} ed={ed} as="h1" checkbox={false} />
         </div>
 
         <div className="tp-main">
@@ -94,12 +95,17 @@ function Body({ t }: { t: TaskDetail }) {
           <div className="sec-h">Properties</div>
           <Properties t={t} ed={ed} full />
           <ReminderCard t={t} ed={ed} />
-          {!done && (
-            <div className="qa2">
-              <button type="button" className="btn btn-sm" onClick={ed.tomorrow}>Tomorrow</button>
-              <button type="button" className="btn btn-sm" onClick={ed.nextWeek}>Next week</button>
-            </div>
-          )}
+          <div className="qa2">
+            {!done && (
+              <>
+                <button type="button" className="btn btn-sm" onClick={ed.tomorrow}>Tomorrow</button>
+                <button type="button" className="btn btn-sm" onClick={ed.nextWeek}>Next week</button>
+              </>
+            )}
+            <button type="button" className="btn btn-sm btn-primary qa2-done" disabled={ed.toggle.isPending} onClick={() => ed.toggle.mutate(undefined)}>
+              {done ? <><RotateCcw size={13} />Reopen</> : <><Check size={13} />Mark complete</>}
+            </button>
+          </div>
           <div className="stamp"><span>Created {ago(t.createdAt)}</span><span>Updated {ago(t.updatedAt)}</span></div>
         </aside>
       </div>
@@ -113,12 +119,12 @@ export function TaskPage() {
   if (q.isError) {
     return (
       <div className="px-6 py-8 lg:px-10">
-        <h1 className="text-[22px] font-semibold">Task not found</h1>
-        <p className="mt-1 text-muted">It may have been deleted. {errorMessage(q.error)}</p>
+        <h1 className="text-[22px] font-semibold">This task no longer exists</h1>
+        <p className="mt-1 text-muted">It may have been deleted.</p>
         <Link to="/tasks" className="btn mt-4">Back to My Tasks</Link>
       </div>
     );
   }
-  if (!q.data) return <div className="px-6 py-8 lg:px-10" aria-busy="true"><div className="h-8 w-2/3 rounded bg-active" /></div>;
+  if (!q.data) return <div className="px-6 py-8 lg:px-10"><SkeletonPage lines={5} label="Loading task" /></div>;
   return <Body key={q.data.id} t={q.data} />;
 }

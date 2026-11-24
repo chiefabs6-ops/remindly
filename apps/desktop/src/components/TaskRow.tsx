@@ -152,6 +152,9 @@ export function rowDue(t: Task, today = todayIso()): { text: string; cls: "od" |
   return { text, cls: "" };
 }
 
+/** dataTransfer type that carries a task id, so the sidebar and calendar can tell task drags from other drags. */
+export const TASK_DND = "application/x-tether-task";
+
 export interface ListRowProps {
   task: Task;
   project?: Project;
@@ -222,12 +225,16 @@ export function ListRow(p: ListRowProps) {
       data-kb={p.cursor ? "true" : undefined}
       aria-current={p.selected ? "true" : undefined}
       className={`trow ${done ? "done" : ""} ${p.selected ? "sel" : ""} ${p.cursor ? "kb" : ""} ${p.draggable ? "" : "nodrag"} ${p.hideProject ? "np" : ""} ${hovOpen ? "hov-open" : ""} ${p.dragging ? "dragging" : ""} ${p.dropTarget ? "over" : ""}`}
-      draggable={p.draggable || undefined}
+      draggable
       onClick={(e) => {
         // Portalled popovers bubble through React; only clicks on the row itself open it.
         if (e.currentTarget.contains(e.target as Node) && !(e.target as HTMLElement).closest("button,a")) p.onOpen(t.id);
       }}
-      onDragStart={(e) => p.onDragStart?.(e, t.id)}
+      onDragStart={(e) => {
+        // Every row can be dragged to a project; only rows with a live grip also reorder inside the list.
+        if (p.draggable) p.onDragStart?.(e, t.id);
+        e.dataTransfer?.setData(TASK_DND, t.id);
+      }}
       onDragOver={(e) => p.onDragOver?.(e, t.id)}
       onDrop={(e) => p.onDrop?.(e, t.id)}
       onDragEnd={p.onDragEnd}

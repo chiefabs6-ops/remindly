@@ -3,8 +3,9 @@ use rusqlite::{Connection, OptionalExtension, Row, ToSql, params, params_from_it
 use crate::{
     error::{AppError, AppResult},
     model::{
-        Actor, Source, Task, TaskDetail, TaskFilter, TaskInput, TaskOrigin, TaskStatus, clean_date,
-        clean_priority, clean_text, clean_time, clean_title, new_id, now_utc,
+        Actor, Repeat, RepeatUnit, Source, Task, TaskDetail, TaskFilter, TaskInput, TaskOrigin,
+        TaskStatus, clean_date, clean_priority, clean_text, clean_time, clean_title, new_id,
+        now_utc,
     },
     repo::{history, links, search, tags},
 };
@@ -22,7 +23,8 @@ pub(crate) const COLS: &str = "t.id, t.parent_id, t.project_id, t.title, t.descr
     (SELECT min(r.fire_at) FROM reminders r WHERE r.task_id = t.id AND r.kind = 'custom'
         AND r.fired_at IS NULL AND r.dismissed_at IS NULL),
     (SELECT min(r.fire_at) FROM reminders r WHERE r.task_id = t.id AND r.kind = 'snooze'
-        AND r.fired_at IS NULL AND r.dismissed_at IS NULL)";
+        AND r.fired_at IS NULL AND r.dismissed_at IS NULL),
+    t.repeat_every, t.repeat_unit, t.repeat_next_id";
 
 /// Default list order: dated first by date/time, then priority, manual order, age.
 pub(crate) const ORDER: &str = "ORDER BY (t.due_date IS NULL), t.due_date, (t.due_time IS NULL),
@@ -63,6 +65,16 @@ pub(crate) fn from_row(r: &Row) -> rusqlite::Result<Task> {
             .and_then(|s| serde_json::from_str(&s).ok()),
         next_reminder: r.get(29)?,
         snoozed_until: r.get(30)?,
+        repeat: match (
+            r.get::<_, Option<u32>>(31)?,
+            r.get::<_, Option<String>>(32)?
+                .as_deref()
+                .and_then(RepeatUnit::parse),
+        ) {
+            (Some(every), Some(unit)) => Some(Repeat { every, unit }),
+            _ => None,
+        },
+        repeat_next_id: r.get(33)?,
     })
 }
 
@@ -186,6 +198,112 @@ pub fn set_reminder(
         )?;
     }
     get(conn, id)
+}
+
+/// Make a task repeat (or stop it). Subtasks cannot repeat: their parent can.
+pub fn set_repeat(
+    conn: &Connection,
+    id: &str,
+    repeat: Option<Repeat>,
+    actor: Actor,
+) -> AppResult<Task> {
+    let old = get(conn, id)?;
+    if let Some(r) = repeat {
+        if !(1..=Repeat::MAX_EVERY).contains(&r.every) {
+            return Err(AppError::invalid("repeat must be every 1-365"));
+        }
+        if old.parent_id.is_some() {
+            return Err(AppError::invalid(
+                "a subtask cannot repeat; make its parent task repeat",
+            ));
+        }
+    }
+    if old.repeat == repeat {
+        return Ok(old);
+    }
+    conn.execute(
+        "UPDATE tasks SET repeat_every = ?2, repeat_unit = ?3, updated_at = ?4 WHERE id = ?1",
+        params![
+            id,
+            repeat.map(|r| r.every),
+            repeat.map(|r| r.unit.as_str()),
+            now_utc()
+        ],
+    )?;
+    let show = |r: Option<Repeat>| r.map_or_else(|| "does not repeat".to_string(), Repeat::label);
+    history::record(
+        conn,
+        id,
+        actor,
+        "update",
+        Some("repeat"),
+        Some(&show(old.repeat)),
+        Some(&show(repeat)),
+    )?;
+    get(conn, id)
+}
+
+/// Completing a repeating task: create the next copy (subtasks reset), due `repeat` after `today`.
+/// Keeps the due time, project, tags, priority, description, notes and reminder settings.
+fn spawn_next(
+    conn: &Connection,
+    done: &Task,
+    repeat: Repeat,
+    today: chrono::NaiveDate,
+    actor: Actor,
+) -> AppResult<String> {
+    let copy = duplicate_inner(conn, done, None, false, actor)?;
+    let due = repeat.next_due(today).format("%Y-%m-%d").to_string();
+    // updated_at stays equal to created_at: "untouched", so an undo can remove it again.
+    conn.execute(
+        "UPDATE tasks SET due_date = ?2, scheduled_date = NULL, repeat_every = ?3, repeat_unit = ?4,
+            reminder_lead = ?5, reminder_repeat = ?6, claude_context = ?7, updated_at = created_at
+         WHERE id = ?1",
+        params![
+            copy.id,
+            due,
+            repeat.every,
+            repeat.unit.as_str(),
+            done.reminder_lead,
+            done.reminder_repeat as i64,
+            done.claude_context.as_ref().map(|v| v.to_string()),
+        ],
+    )?;
+    history::record(
+        conn,
+        &copy.id,
+        actor,
+        "repeated",
+        None,
+        Some(&done.id),
+        Some(&due),
+    )?;
+    conn.execute(
+        "UPDATE tasks SET repeat_next_id = ?2 WHERE id = ?1",
+        params![done.id, copy.id],
+    )?;
+    Ok(copy.id)
+}
+
+/// True when the copy made on completion has not been worked on: still not started, never edited,
+/// its subtasks are the ones copied with it and unchanged, and it has no reminder of its own.
+fn untouched_copy(conn: &Connection, n: &Task) -> AppResult<bool> {
+    if n.status != TaskStatus::NotStarted || n.updated_at != n.created_at {
+        return Ok(false);
+    }
+    let changed_subtasks: i64 = conn.query_row(
+        "SELECT count(*) FROM tasks s WHERE s.parent_id = ?1 AND s.deleted_at IS NULL
+           AND (s.updated_at != s.created_at OR s.status != 'not_started'
+                OR (julianday(s.created_at) - julianday(?2)) * 86400 > 5)",
+        params![n.id, n.created_at],
+        |r| r.get(0),
+    )?;
+    let reminders: i64 = conn.query_row(
+        "SELECT count(*) FROM reminders WHERE task_id = ?1 AND kind IN ('custom', 'snooze')",
+        [&n.id],
+        |r| r.get(0),
+    )?;
+    Ok(changed_subtasks == 0 && reminders == 0)
 }
 
 /// Manual order from drag and drop: `ids` in their new order. The list still sorts by due date
@@ -385,6 +503,30 @@ pub fn set_status(
             Some(old.status.as_str()),
             Some(status.as_str()),
         )?;
+    }
+    if old.status != status && old.parent_id.is_none() {
+        let next = old
+            .repeat_next_id
+            .as_deref()
+            .and_then(|n| get(conn, n).ok());
+        if status == TaskStatus::Completed {
+            if let Some(r) = old.repeat
+                && next.is_none()
+            {
+                spawn_next(conn, &old, r, chrono::Local::now().date_naive(), actor)?;
+            }
+        } else if old.status == TaskStatus::Completed
+            && status != TaskStatus::Archived
+            && let Some(n) = next
+            && untouched_copy(conn, &n)?
+        {
+            // Reopened (e.g. undo): the copy made on completion was never touched, so take it back.
+            soft_delete(conn, &n.id, actor)?;
+            conn.execute(
+                "UPDATE tasks SET repeat_next_id = NULL WHERE id = ?1",
+                params![id],
+            )?;
+        }
     }
     if cascade && matches!(status, TaskStatus::Completed | TaskStatus::Archived) {
         let open: Vec<String> = {
@@ -934,5 +1076,202 @@ mod tests {
         assert!(db.write(|c| reorder(c, &["nope".into()])).is_err());
         let d = db.read(|c| detail(c, &a.id)).unwrap();
         assert!(d.links.is_empty());
+    }
+
+    #[test]
+    fn repeat_next_due_dates() {
+        let d = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let r = |every, unit| Repeat { every, unit };
+        // Wednesday 2026-11-25.
+        assert_eq!(
+            r(1, RepeatUnit::Day).next_due(d("2026-11-25")),
+            d("2026-11-26")
+        );
+        assert_eq!(
+            r(2, RepeatUnit::Week).next_due(d("2026-11-25")),
+            d("2026-12-09")
+        );
+        assert_eq!(
+            r(1, RepeatUnit::Month).next_due(d("2026-01-31")),
+            d("2026-02-28")
+        );
+        assert_eq!(
+            r(3, RepeatUnit::Month).next_due(d("2026-11-25")),
+            d("2027-02-25")
+        );
+        // Friday + 1 working day = Monday; Friday + 3 working days = Wednesday.
+        assert_eq!(
+            r(1, RepeatUnit::Weekday).next_due(d("2026-11-27")),
+            d("2026-11-30")
+        );
+        assert_eq!(
+            r(3, RepeatUnit::Weekday).next_due(d("2026-11-27")),
+            d("2026-12-02")
+        );
+        assert_eq!(r(2, RepeatUnit::Week).label(), "every 2 weeks");
+        assert_eq!(r(1, RepeatUnit::Weekday).label(), "every working day");
+    }
+
+    #[test]
+    fn completing_a_repeating_task_makes_the_next_one() {
+        let db = db();
+        let t = db
+            .write(|c| {
+                create(
+                    c,
+                    &TaskInput {
+                        title: "Expense claims".into(),
+                        due_date: Some("2026-11-20".into()),
+                        due_time: Some("09:30".into()),
+                        priority: 2,
+                        tags: vec!["admin".into()],
+                        ..Default::default()
+                    },
+                    &TaskOrigin::default(),
+                    Actor::User,
+                )
+            })
+            .unwrap();
+        let sub = db
+            .write(|c| {
+                create(
+                    c,
+                    &input("Collect receipts"),
+                    &TaskOrigin {
+                        parent_id: Some(t.id.clone()),
+                        ..Default::default()
+                    },
+                    Actor::User,
+                )
+            })
+            .unwrap();
+        let weekly = Repeat {
+            every: 1,
+            unit: RepeatUnit::Week,
+        };
+        // Subtasks cannot repeat, and the range is checked.
+        assert!(
+            db.write(|c| set_repeat(c, &sub.id, Some(weekly), Actor::User))
+                .is_err()
+        );
+        assert!(
+            db.write(|c| set_repeat(
+                c,
+                &t.id,
+                Some(Repeat {
+                    every: 0,
+                    unit: RepeatUnit::Day
+                }),
+                Actor::User
+            ))
+            .is_err()
+        );
+        let t = db
+            .write(|c| set_repeat(c, &t.id, Some(weekly), Actor::User))
+            .unwrap();
+        assert_eq!(t.repeat, Some(weekly));
+
+        let done = db
+            .write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        let next_id = done.repeat_next_id.clone().expect("next copy made");
+        let next = db.read(|c| detail(c, &next_id)).unwrap();
+        let want = weekly
+            .next_due(chrono::Local::now().date_naive())
+            .format("%Y-%m-%d")
+            .to_string();
+        assert_eq!(next.task.title, "Expense claims");
+        assert_eq!(next.task.status, TaskStatus::NotStarted);
+        assert_eq!(next.task.due_date.as_deref(), Some(want.as_str()));
+        assert_eq!(next.task.due_time.as_deref(), Some("09:30"));
+        assert_eq!(next.task.priority, 2);
+        assert_eq!(next.task.tags, vec!["admin".to_string()]);
+        assert_eq!(next.task.repeat, Some(weekly));
+        assert_eq!(next.subtasks.len(), 1);
+        assert_eq!(next.subtasks[0].status, TaskStatus::NotStarted);
+
+        // Completing again (already completed) makes no second copy.
+        db.write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        // Undo: reopening takes the untouched copy back.
+        let reopened = db
+            .write(|c| set_status(c, &t.id, TaskStatus::NotStarted, false, Actor::User))
+            .unwrap();
+        assert!(reopened.repeat_next_id.is_none());
+        assert!(db.read(|c| get(c, &next_id)).is_err());
+
+        // Complete, then edit the copy: reopening keeps it, and completing again makes no extra copy.
+        let done = db
+            .write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        let second = done.repeat_next_id.clone().unwrap();
+        assert_ne!(second, next_id);
+        db.write(|c| {
+            Ok(c.execute(
+                "UPDATE tasks SET updated_at = '2099-01-01T00:00:00.000Z' WHERE id = ?1",
+                [&second],
+            )?)
+        })
+        .unwrap();
+        db.write(|c| set_status(c, &t.id, TaskStatus::NotStarted, false, Actor::User))
+            .unwrap();
+        assert!(db.read(|c| get(c, &second)).is_ok());
+        let again = db
+            .write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        assert_eq!(again.repeat_next_id.as_deref(), Some(second.as_str()));
+
+        // Archiving the completed task keeps next week's copy.
+        let done = db
+            .write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        assert_eq!(done.repeat_next_id.as_deref(), Some(second.as_str()));
+        db.write(|c| set_status(c, &t.id, TaskStatus::Archived, true, Actor::User))
+            .unwrap();
+        assert!(db.read(|c| get(c, &second)).is_ok());
+
+        // A task that does not repeat makes nothing.
+        let plain = mk(&db, "One-off");
+        let plain = db
+            .write(|c| set_status(c, &plain.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        assert!(plain.repeat_next_id.is_none());
+
+        // Stop repeating.
+        let t = db
+            .write(|c| set_repeat(c, &second, None, Actor::User))
+            .unwrap();
+        assert!(t.repeat.is_none());
+    }
+
+    #[test]
+    fn reopening_keeps_a_copy_that_was_worked_on() {
+        let db = db();
+        let t = mk(&db, "Weekly report");
+        let daily = Repeat {
+            every: 1,
+            unit: RepeatUnit::Day,
+        };
+        db.write(|c| set_repeat(c, &t.id, Some(daily), Actor::User))
+            .unwrap();
+        let done = db
+            .write(|c| set_status(c, &t.id, TaskStatus::Completed, true, Actor::User))
+            .unwrap();
+        let copy = done.repeat_next_id.unwrap();
+        // A subtask added to the copy counts as work on it, even though the copy row is unchanged.
+        db.write(|c| {
+            c.execute(
+                "INSERT INTO tasks(id, parent_id, title, created_at, updated_at)
+                 VALUES ('later', ?1, 'Added later', '2099-01-01T00:00:00.000Z', '2099-01-01T00:00:00.000Z')",
+                [&copy],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let reopened = db
+            .write(|c| set_status(c, &t.id, TaskStatus::NotStarted, false, Actor::User))
+            .unwrap();
+        assert!(db.read(|c| get(c, &copy)).is_ok());
+        assert_eq!(reopened.repeat_next_id.as_deref(), Some(copy.as_str()));
     }
 }

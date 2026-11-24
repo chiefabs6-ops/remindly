@@ -153,3 +153,13 @@ describe("My Tasks — undo, keyboard and drag", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("Repeating task", () => {
+  it("completing it in My Tasks says when the next one is due", async () => {
+    const t = await find("Review course import");
+    await mockInvoke("task_set_repeat", { id: t.id, repeat: { every: 1, unit: "week" } });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Complete "Review course import/ }));
+    expect(await screen.findByText(/Next one due/)).toBeInTheDocument();
+  });
+});
