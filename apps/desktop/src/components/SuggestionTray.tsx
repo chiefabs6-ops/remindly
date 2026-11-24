@@ -8,6 +8,7 @@ import { todayIso } from "../lib/format";
 import { useInvalidateAll, useSuggestions } from "../lib/queries";
 import { ClaudeMark, PriorityBars } from "./ui/Bits";
 import { useToast } from "./ui/Toast";
+import { Review } from "../screens/Inbox";
 
 const trunc = (s: string) => (s.length > 38 ? `${s.slice(0, 38)}…` : s);
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -21,12 +22,14 @@ function whyLine(s: Suggestion, p: SuggestedTask): { quote?: string; text?: stri
   return text ? { text } : {};
 }
 
-export function SuggestionTray({ projects, onEdit }: { projects: Project[]; onEdit: (title: string) => void }) {
+export function SuggestionTray({ projects }: { projects: Project[] }) {
   const sugg = useSuggestions("pending");
   const toast = useToast();
   const invalidate = useInvalidateAll();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // Edit opens the full review form in place, so approving keeps Claude's source and context.
+  const [editing, setEditing] = useState<string | null>(null);
 
   const list = (sugg.data ?? []).filter((s) => s.origin === "claude" && s.kind === "task");
   if (list.length === 0) return null;
@@ -80,6 +83,14 @@ export function SuggestionTray({ projects, onEdit }: { projects: Project[]; onEd
             const proj = p.projectId ? projects.find((x) => x.id === p.projectId) : undefined;
             const why = whyLine(s, p);
             const where = str(s.context?.resumeHint);
+            if (editing === s.id) {
+              return (
+                <div key={s.id} className="sg-edit">
+                  <Review s={s} projects={projects} onDone={() => { setEditing(null); invalidate(); }} />
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>Cancel</button>
+                </div>
+              );
+            }
             return (
               <div key={s.id} className="sg">
                 <span className="sg-ring" aria-hidden="true" />
@@ -109,7 +120,7 @@ export function SuggestionTray({ projects, onEdit }: { projects: Project[]; onEd
                   <button type="button" className="btn btn-primary btn-sm" disabled={busy === s.id} onClick={() => approve(s)}>
                     <CheckIcon size={14} aria-hidden="true" />Add task
                   </button>
-                  <button type="button" className="btn btn-sm" onClick={() => onEdit(p.title)}>Edit</button>
+                  <button type="button" className="btn btn-sm" onClick={() => setEditing(s.id)}>Edit</button>
                   <button type="button" className="btn btn-ghost btn-sm btn-icon" aria-label="Dismiss suggestion" title="Dismiss"
                     disabled={busy === s.id} onClick={() => dismiss(s)}>
                     <X size={14} aria-hidden="true" />

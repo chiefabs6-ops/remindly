@@ -282,7 +282,8 @@ pub struct PendingRoute(pub std::sync::Mutex<Option<String>>);
 fn open_at(app: &AppHandle, path: String) {
     let has_window = app.get_webview_window("main").is_some();
     if has_window {
-        let _ = app.emit(NAVIGATE, path);
+        // Only the main window navigates; pop-out task windows stay on their task.
+        let _ = app.emit_to("main", NAVIGATE, path);
     } else if let Some(p) = app.try_state::<PendingRoute>() {
         *p.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
     }

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { Check as CheckIcon, ChevronDown, Folder, Layers } from "lucide-react";
 import {
   addDays, dayDiff, isoDate, PRIORITY_LABEL, relativeDayLabel,
-  type Priority, type Task, type TaskFilter, type TaskInput,
+  type Priority, type Task, type TaskFilter,
 } from "@tether/core";
 import { QuickAdd } from "../components/QuickAdd";
 import { QuickPanel } from "../components/QuickPanel";
@@ -13,6 +13,7 @@ import { Tabs } from "../components/ui/Controls";
 import { Popover, usePopover } from "../components/ui/Popover";
 import { useToast } from "../components/ui/Toast";
 import { api, errorMessage } from "../lib/api";
+import { completeTask, patchTask, rescheduleTask } from "../lib/taskActions";
 import { toneDot } from "../lib/colors";
 import { longDate, todayIso } from "../lib/format";
 import { useDashboard, useInvalidateAll, useNotes, useProjects, useTasks } from "../lib/queries";
@@ -28,15 +29,6 @@ const LINGER_MS = 1400;
 
 const isOpen = (t: Task) => OPEN_STATUSES.includes(t.status);
 const trunc = (s: string) => (s.length > 38 ? `${s.slice(0, 38)}…` : s);
-
-/** Every field of the task, so one change can be saved with updateTask (which replaces the whole task). */
-function toInput(t: Task, patch: Partial<TaskInput> = {}): TaskInput {
-  return {
-    title: t.title, description: t.description, notes: t.notes, status: t.status, priority: t.priority,
-    dueDate: t.dueDate, dueTime: t.dueTime, scheduledDate: t.scheduledDate, projectId: t.projectId, tags: t.tags,
-    ...patch,
-  };
-}
 
 interface Group { key: string; label: string; items: Task[]; late?: boolean; sub?: string }
 
@@ -66,7 +58,6 @@ export function TasksScreen() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [linger, setLinger] = useState<Set<string>>(new Set());
   const [drag, setDrag] = useState<{ id: string; over: string | null } | null>(null);
-  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const groupMenu = usePopover();
   const projMenu = usePopover();
@@ -197,23 +188,26 @@ export function TasksScreen() {
       toast(`Reopened “${trunc(t.title)}”`);
       return;
     }
-    const prev = t.status;
     setLinger((s) => new Set(s).add(t.id));
     timers.current.set(t.id, setTimeout(() => clearLinger(t.id), LINGER_MS));
-    void run(() => api.setStatus(t.id, "completed", true));
-    toast(`Completed “${trunc(t.title)}”`, () => {
-      clearLinger(t.id);
-      return run(() => api.setStatus(t.id, prev, false));
+    // Undo puts back the old status and reopens exactly the subtasks this completed.
+    void run(async () => {
+      const undo = await completeTask(t.id);
+      toast(`Completed “${trunc(t.title)}”`, () => {
+        clearLinger(t.id);
+        return run(undo);
+      });
     });
   };
 
   const reschedule = (t: Task, date: string | null) => {
-    const old = { d: t.dueDate, t: t.dueTime };
-    void run(() => api.reschedule(t.id, date, date ? t.dueTime : null));
-    toast(date ? `Moved to ${relativeDayLabel(date, today)}` : "Date removed", () => run(() => api.reschedule(t.id, old.d, old.t)));
+    void run(async () => {
+      const undo = await rescheduleTask(t.id, date);
+      toast(date ? `Moved to ${relativeDayLabel(date, today)}` : "Date removed", () => run(undo));
+    });
   };
 
-  const setPriority = (t: Task, p: Priority) => void run(() => api.updateTask(t.id, toInput(t, { priority: p })));
+  const setPriority = (t: Task, p: Priority) => void run(() => patchTask(t.id, { priority: p }));
 
   const duplicate = (t: Task) => {
     void run(() => api.duplicate(t.id));
@@ -241,8 +235,17 @@ export function TasksScreen() {
   };
 
   // ---- drag to reorder inside one date group ----
-  const dragEnabled = group === "date" && view !== "done";
-  const groupOf = (id: string) => groups.find((g) => g.items.some((t) => t.id === id));
+  // The list sorts by date, time and priority before manual order, so a drag can only reorder
+  // tasks that tie on all three. Off while a search or project filter hides part of the list,
+  // because the hidden tasks would keep stale positions.
+  const dragEnabled = group === "date" && view !== "done" && !q && !filterProject;
+  const sortKey = (t: Task) => `${t.dueDate ?? ""}|${t.dueTime ?? ""}|${t.priority}`;
+  const groupOf = (id: string) => {
+    const t = byId.get(id);
+    if (!t) return undefined;
+    const g = groups.find((x) => x.items.some((y) => y.id === id));
+    return g && { key: `${g.key}|${sortKey(t)}`, items: g.items.filter((y) => sortKey(y) === sortKey(t)) };
+  };
   const onDragStart = (e: DragEvent, id: string) => {
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", id);
@@ -351,7 +354,7 @@ export function TasksScreen() {
         </div>
 
         <div className="tk-tools" role="toolbar" aria-label="Filters">
-          <QuickAdd projects={ps} projectId={projectId ?? null} prefill={prefill} />
+          <QuickAdd projects={ps} projectId={projectId ?? null} />
           <button type="button" className="tk-menu-btn" aria-haspopup="menu" aria-label={`Group by: ${GROUP_LABEL[group]}`}
             onClick={(e) => groupMenu.open(e.currentTarget)}>
             <Layers size={14} strokeWidth={1.6} /><span className="lbl">Group:</span> <b>{GROUP_LABEL[group]}</b>
@@ -385,7 +388,7 @@ export function TasksScreen() {
         )}
 
         <div className="tk-scroll">
-          {view !== "done" && <SuggestionTray projects={ps} onEdit={(title) => setPrefill({ text: title, n: Date.now() })} />}
+          {view !== "done" && <SuggestionTray projects={ps} />}
 
           {tasks.isError ? (
             <p className="px-2 py-4 text-negative">

@@ -51,7 +51,7 @@ export function CapturedText({ t }: { t: TaskDetail }) {
       <div className="cap">
         <blockquote>“{t.sourceSelection}”</blockquote>
         {t.sourceUrl && (
-          <a href={t.sourceUrl} onClick={(e) => { e.preventDefault(); void openExternal(t.sourceUrl!); }}>
+          <a href={t.sourceUrl} onClick={(e) => { e.preventDefault(); void openExternal(t.sourceUrl!); }} onAuxClick={(e) => e.preventDefault()}>
             {t.sourceTitle || hostOf(t.sourceUrl)} <span className="faint">· {hostOf(t.sourceUrl)}</span> ↗
           </a>
         )}

@@ -4,33 +4,37 @@ import { api } from "../../lib/api";
 import { todayIso } from "../../lib/format";
 import { keys, queryClient, useAction } from "../../lib/queries";
 import { useToast } from "../ui/Toast";
-import { asInput } from "./model";
+import { completeTask, patchTask, rescheduleTask } from "../../lib/taskActions";
 
 export function useTaskEdit(t: TaskDetail) {
   const toast = useToast();
   // Build each save from the newest copy of the task, so overlapping edits never send stale fields back.
   const latest = () => queryClient.getQueryData<TaskDetail>(keys.task(t.id)) ?? t;
-  const patch = useAction((p: Partial<TaskInput>) => api.updateTask(t.id, { ...asInput(latest()), ...p }));
+  // Each save reads the task fresh first, so an edit made in another window is never sent back stale.
+  const patch = useAction((p: Partial<TaskInput>) => patchTask(t.id, p));
   const setStatus = useAction((s: TaskStatus) => api.setStatus(t.id, s, s === "completed"));
   // Moving the date keeps the saved time; a cleared time stays cleared.
-  const resched = useAction((a: { date: string | null; time: string | null }) => api.reschedule(t.id, a.date, a.time));
+  const resched = useAction((date: string | null) => rescheduleTask(t.id, date));
   const remind = useAction((iso: string) => api.remindAt(t.id, iso));
   const duplicate = useAction(() => api.duplicate(t.id));
   const remove = useAction(() => api.deleteTask(t.id));
 
   const done = t.status === "completed";
+  const refresh = () => queryClient.invalidateQueries({ queryKey: keys.all });
   const toggle = useAction(async () => {
     const was = latest();
-    const nowDone = was.status === "completed";
-    await api.setStatus(t.id, nowDone ? "not_started" : "completed", !nowDone);
-    if (!nowDone) toast(`Completed “${was.title}”`, () => api.setStatus(t.id, "not_started", false).then(() => queryClient.invalidateQueries({ queryKey: keys.all })));
+    if (was.status === "completed") {
+      await api.setStatus(t.id, "not_started", false);
+      return;
+    }
+    // Undo puts back the old status and reopens exactly the subtasks this completed.
+    const undo = await completeTask(t.id);
+    toast(`Completed “${was.title}”`, () => undo().then(refresh));
   });
 
   const reschedule = (date: string | null) => {
-    const old = latest();
-    resched.mutate({ date, time: date ? old.dueTime : null }, {
-      onSuccess: () => toast(date ? "Rescheduled" : "Date removed", () =>
-        api.reschedule(t.id, old.dueDate, old.dueTime).then(() => queryClient.invalidateQueries({ queryKey: keys.all }))),
+    resched.mutate(date, {
+      onSuccess: (undo) => toast(date ? "Rescheduled" : "Date removed", () => undo().then(refresh)),
     });
   };
   const saveTags = (text: string) => {

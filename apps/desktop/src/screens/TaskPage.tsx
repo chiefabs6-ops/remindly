@@ -17,6 +17,7 @@ import { useTaskEdit } from "../components/task/useTaskEdit";
 import { usePopover } from "../components/ui/Popover";
 import { ReschedulePopover } from "../components/ui/Reschedule";
 import { api, errorMessage } from "../lib/api";
+import { isPopoutWindow } from "../lib/taskActions";
 import { toneDot } from "../lib/colors";
 import { ago } from "../lib/format";
 import { useProjects, useTask } from "../lib/queries";
@@ -34,6 +35,8 @@ function Body({ t }: { t: TaskDetail }) {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const el = e.target as HTMLElement | null;
       if (el?.closest("input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
+      // A pop-out window shows just this task; Esc must not turn it into a second copy of the app.
+      if (isPopoutWindow()) return;
       navigate("/tasks");
     };
     window.addEventListener("keydown", onKey);

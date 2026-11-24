@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { focusManager, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NoteFilter, SuggestionStatus, TaskFilter } from "@tether/core";
 import { api, onDataChanged } from "./api";
 
@@ -9,6 +9,19 @@ export const queryClient = new QueryClient({
     queries: { retry: false, staleTime: 5_000, refetchOnWindowFocus: true },
     mutations: { retry: false },
   },
+});
+
+// Refetch when this window gains focus, not only when it becomes visible: with a pop-out task window
+// open, both windows stay visible and each has its own cache.
+focusManager.setEventListener((handleFocus) => {
+  const onFocus = () => handleFocus(true);
+  const onVisible = () => handleFocus(document.visibilityState === "visible");
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
 });
 
 export const keys = {

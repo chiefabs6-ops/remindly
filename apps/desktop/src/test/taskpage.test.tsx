@@ -70,6 +70,11 @@ describe("Full task page", () => {
     await user.click(screen.getByRole("button", { name: "Save link" }));
     expect(await screen.findByRole("link", { name: /Claims sheet/ })).toBeInTheDocument();
     expect(screen.getByText("example.com")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Remove link/ }));
+    await waitFor(() => expect(screen.queryByRole("link", { name: /Claims sheet/ })).not.toBeInTheDocument());
+    const after = await mockInvoke<{ links: unknown[] }>("task_get", { id });
+    expect(after.links).toHaveLength(0);
   });
 
   it("adds an update and shows it in Activity", async () => {

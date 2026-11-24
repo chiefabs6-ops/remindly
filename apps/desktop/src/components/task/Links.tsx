@@ -10,7 +10,7 @@ function Row({ url, title, onRemove }: { url: string; title: string | null; onRe
   const host = hostOf(url) ?? url;
   return (
     <li className="lk">
-      <a href={url} title={url} onClick={(e) => { e.preventDefault(); void openExternal(url); }}>
+      <a href={url} title={url} onClick={(e) => { e.preventDefault(); void openExternal(url); }} onAuxClick={(e) => e.preventDefault()}>
         <Link2 size={14} strokeWidth={1.6} /><span>{title || host}</span>{title && <small>{host}</small>}
       </a>
       {onRemove && <button type="button" className="rm" aria-label={`Remove link ${title || host}`} onClick={onRemove}><X size={13} /></button>}

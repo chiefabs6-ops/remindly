@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router";
 import { CalendarCheck, ClipboardCheck, FolderKanban, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
 import type { TaskStatus } from "@tether/core";
 import { api, onNavigate } from "../lib/api";
+import { isPopoutWindow } from "../lib/taskActions";
 import { toneDot } from "../lib/colors";
 import { useAction, useBackendSync, useDashboard, useProjects, useSettings, useTasks } from "../lib/queries";
 import { ToastProvider } from "./ui/Toast";
@@ -68,6 +69,8 @@ export function Layout() {
   useEffect(() => {
     let stop: (() => void) | undefined;
     let cancelled = false;
+    // Pop-out task windows ignore notification navigation; only the main window follows it.
+    if (isPopoutWindow()) return;
     onNavigate((path) => navigate(path)).then((u) => (cancelled ? u() : (stop = u)));
     api.takePendingRoute().then((p) => p && !cancelled && navigate(p)).catch(() => {});
     return () => {

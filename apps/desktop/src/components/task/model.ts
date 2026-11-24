@@ -50,14 +50,16 @@ export function localIso(date: string, hh: number, mm: number, minusMin = 0): st
   return new Date(y, m - 1, d, hh, mm - minusMin).toISOString();
 }
 
-/** Open a web link outside the app: the Tauri opener when present, else a new browser tab. */
+/** Open a web link outside the app. Only http(s) links are ever opened; inside Tauri the system
+ *  browser opens it (never the app's own webview), in a plain browser a new tab does. */
 export async function openExternal(url: string) {
-  try {
+  if (!/^https?:\/\/[^\s/]/i.test(url)) return;
+  if ("__TAURI_INTERNALS__" in window) {
     const { openUrl } = await import("@tauri-apps/plugin-opener");
     await openUrl(url);
-  } catch {
-    window.open(url, "_blank", "noopener,noreferrer");
+    return;
   }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 /** Claude context is stored as Markdown inside the task notes: "**Label**" + "- item" lines, or "**Label:** text". */

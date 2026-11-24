@@ -93,6 +93,7 @@ export const QuickAdd = forwardRef<HTMLInputElement, Props>(function QuickAdd(
           {dueText && <span className="pill pill-today">{dueText}</span>}
           {project && <span className="chip" style={toneStyle(project.color)}>{project.name}</span>}
           {priority > 0 && <span className={priority === 3 ? "pill pill-warning" : "pill"}>{PRIORITY_LABEL[priority]}</span>}
+          {parsed.input.tags?.map((g) => <span key={`t-${g}`} className="pill">#{g}</span>)}
           {parsed.unknownProjects.map((w) => <span key={w} className="pill pill-warning">#{w}?</span>)}
         </div>
       )}

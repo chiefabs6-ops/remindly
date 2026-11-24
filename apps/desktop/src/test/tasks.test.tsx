@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
 import { mockInvoke, resetMock } from "../lib/mock";
 import { setBackend } from "../lib/api";
 import { queryClient } from "../lib/queries";
 import { todayIso } from "../lib/format";
+import { addDays } from "@tether/core";
 
 beforeEach(() => {
   // Fixed evening clock: the sample "09:00 today" task is already overdue, whatever time the suite runs.
@@ -96,5 +97,59 @@ describe("My Tasks", () => {
     await user.click(await screen.findByRole("button", { name: "Add task" }));
     await waitFor(async () => expect((await find("Wire the profile save")).source).toBe("claude"));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Claude suggested/ })).not.toBeInTheDocument());
+  });
+});
+
+describe("My Tasks — undo, keyboard and drag", () => {
+  it("Undo after completing a task with subtasks restores its status and reopens only the subtasks it closed", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const parent = await find("Finish educator profile page");
+    expect(parent.status).toBe("in_progress");
+    await user.click(await screen.findByRole("button", { name: 'Complete "Finish educator profile page"' }));
+    await waitFor(async () => expect((await find("Finish educator profile page")).status).toBe("completed"));
+    await waitFor(async () => expect((await find("Test Irish translations")).status).toBe("completed"));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(async () => expect((await find("Finish educator profile page")).status).toBe("in_progress"));
+    await waitFor(async () => expect((await find("Test Irish translations")).status).toBe("not_started"));
+    // The subtask that was already done stays done.
+    expect((await find("Fix validation errors on profile form")).status).toBe("completed");
+  });
+
+  it("keyboard: T moves the selected task to today", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Overdue" });
+    await user.keyboard("j");
+    await user.keyboard("t");
+    await waitFor(async () => expect((await find("Send updated teacher list")).dueDate).toBe(todayIso()));
+  });
+
+  it("drag reorders tasks that share date, time and priority, and sends only those", async () => {
+    const day = addDays(todayIso(), 20);
+    for (const title of ["Alpha same-day", "Beta same-day"]) {
+      await mockInvoke("task_create", { input: { title, dueDate: day, priority: 0 } });
+    }
+    const calls: unknown[] = [];
+    const spy = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "task_reorder") calls.push(args?.ids);
+      return mockInvoke(cmd, args);
+    });
+    setBackend(spy as typeof mockInvoke);
+    render(<App />);
+    const a = await find("Alpha same-day");
+    const b = await find("Beta same-day");
+    const rowA = (await screen.findByText("Alpha same-day")).closest("[data-id]")!;
+    const rowB = screen.getByText("Beta same-day").closest("[data-id]")!;
+    const dt = { effectAllowed: "", setData: () => {}, getData: () => b.id };
+    fireEvent.dragStart(rowB, { dataTransfer: dt });
+    fireEvent.dragOver(rowA, { dataTransfer: dt });
+    fireEvent.drop(rowA, { dataTransfer: dt });
+    await waitFor(() => expect(calls).toEqual([[b.id, a.id]]));
+    // A task with a different date cannot be a drop target.
+    const other = screen.getByText("Prepare Q1 training calendar").closest("[data-id]")!;
+    fireEvent.dragStart(rowB, { dataTransfer: dt });
+    fireEvent.drop(other, { dataTransfer: dt });
+    expect(calls).toHaveLength(1);
   });
 });

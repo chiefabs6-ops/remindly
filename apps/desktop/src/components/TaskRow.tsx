@@ -1,6 +1,6 @@
 import type { DragEvent } from "react";
 import { Bot, CalendarClock, Copy, Ellipsis, Flag, Globe, GripVertical, Maximize2, StickyNote, Trash2 } from "lucide-react";
-import { dayDiff, PRIORITY_LABEL, relativeDayLabel, type Priority, type Project, type Task } from "@tether/core";
+import { dayDiff, isoDate, PRIORITY_LABEL, relativeDayLabel, type Priority, type Project, type Task } from "@tether/core";
 import { api } from "../lib/api";
 import { dueLabel, dueTone, todayIso } from "../lib/format";
 import { useAction } from "../lib/queries";
@@ -141,7 +141,7 @@ export function TaskList({
 /** Due cell text and tone: "Today 15:30", "Yesterday · 1d", "Sun 22 Nov · 2d". */
 export function rowDue(t: Task, today = todayIso()): { text: string; cls: "od" | "td" | "none" | ""; late?: number } {
   if (t.status === "completed") {
-    return { text: t.completedAt ? `Done ${relativeDayLabel(t.completedAt.slice(0, 10), today)}` : "Done", cls: "" };
+    return { text: t.completedAt ? `Done ${relativeDayLabel(isoDate(new Date(t.completedAt)), today)}` : "Done", cls: "" };
   }
   if (!t.dueDate) return { text: "No date", cls: "none" };
   const diff = dayDiff(today, t.dueDate);

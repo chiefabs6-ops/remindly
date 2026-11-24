@@ -7,9 +7,20 @@ export function Tabs<K extends string>({ items, value, onChange, label }: {
   items: TabItem<K>[]; value: K; onChange: (k: K) => void; label: string;
 }) {
   return (
-    <div className="tabs" role="tablist" aria-label={label}>
+    <div className="tabs" role="tablist" aria-label={label}
+      onKeyDown={(e) => {
+        // Arrow keys move between tabs (and select), Home/End jump to the ends.
+        const i = items.findIndex((t) => t.key === value);
+        const to = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : null;
+        if (to === null) return;
+        e.preventDefault();
+        const next = items[(to + items.length) % items.length];
+        onChange(next.key);
+        e.currentTarget.querySelector<HTMLElement>(`[data-key="${next.key}"]`)?.focus();
+      }}>
       {items.map((t) => (
-        <button key={t.key} type="button" role="tab" className="tab" aria-selected={value === t.key} onClick={() => onChange(t.key)}>
+        <button key={t.key} type="button" role="tab" className="tab" data-key={t.key} aria-selected={value === t.key}
+          tabIndex={value === t.key ? 0 : -1} onClick={() => onChange(t.key)}>
           {t.label}
           {t.count !== undefined && <span className={`n num ${t.negative && t.count > 0 ? "neg" : ""}`}>{t.count}</span>}
         </button>
