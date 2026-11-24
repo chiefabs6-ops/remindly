@@ -53,7 +53,7 @@ export function ReviewScreen() {
   const d = dash.data;
   const open = d ? [...d.overdue, ...d.dueToday, ...d.carriedOver] : [];
   return (
-    <div className="mx-auto max-w-[960px] px-6 py-6 lg:px-8">
+    <div className="px-6 py-6 lg:px-8">
       <h1 className="text-2xl font-semibold tracking-[-0.01em]">End of day review</h1>
       <p className="mt-1 text-muted">
         {d ? longDate(d.today) : " "} · <span className="num">{open.length}</span> still open · <span className="num">{d?.completedToday.length ?? 0}</span> done today
