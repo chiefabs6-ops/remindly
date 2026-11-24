@@ -5,14 +5,48 @@
 #   npm run update-app
 #
 # Install Tether once with the installer first: this script only replaces an existing install.
+#
+#   -Pull     first update the source from GitHub (main only, no uncommitted changes)
+#   -FromApp  started by Settings -> Updates: on error, keep the window open to read it
+
+param([switch]$Pull, [switch]$FromApp)
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+
+function Invoke-Git {
+    $ErrorActionPreference = 'Continue'
+    # stdout only: a git warning on stderr must not look like output (e.g. "changes not committed").
+    $out = & git -C $repo @args 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed (exit $LASTEXITCODE). Run it in the source folder to see why." }
+    "$out".Trim()
+}
+
+try {
 $target = Join-Path $env:LOCALAPPDATA 'Tether\tether.exe'
 $built = Join-Path $repo 'apps\desktop\src-tauri\target\release\tether.exe'
 
 if (-not (Test-Path $target)) {
     throw "Tether is not installed at $target. Run the installer once (npm run build), then use this."
+}
+
+if ($Pull) {
+    Write-Host 'Getting the latest version from GitHub...'
+    $branch = Invoke-Git rev-parse --abbrev-ref HEAD
+    if ($branch -ne 'main') { throw "The source folder is on branch '$branch'. Switch it to main, then update." }
+    if (Invoke-Git status --porcelain --untracked-files=no) { throw 'The source folder has changes that are not committed. Commit or undo them, then update.' }
+    $before = Invoke-Git rev-parse HEAD
+    Invoke-Git pull --ff-only --quiet origin main | Out-Null
+    if (Invoke-Git diff --name-only "$before..HEAD" '--' package-lock.json) {
+        Write-Host 'Dependencies changed: installing them...'
+        Push-Location $repo
+        try {
+            $ErrorActionPreference = 'Continue'
+            npm ci --no-audit --no-fund
+            $ErrorActionPreference = 'Stop'
+            if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE). The installed app was not changed." }
+        } finally { Pop-Location }
+    }
 }
 
 Write-Host '1/3 Building tether.exe (no installer)...'
@@ -59,11 +93,19 @@ try {
     $why = $_.Exception.Message
     try { Copy-Item $backup $target -Force }
     catch { throw "Could not replace $target ($why), and could not put the old version back. Copy $backup over $target by hand." }
-    throw "Could not replace $target ($why). The old version was put back."
+    Start-Process -FilePath $target -WorkingDirectory (Split-Path $target)
+    throw "Could not replace $target ($why). The old version was put back and reopened."
 }
 
 Start-Process -FilePath $target -WorkingDirectory (Split-Path $target)
 $note = if ($wasRunning) { 'restarted' } else { 'started' }
 Write-Host "Done. Tether was updated and $note."
 Write-Host "The previous app file is kept at $backup. It can only open your data if this update added no database change."
+    if ($FromApp) { Start-Sleep -Seconds 3 }
+} catch {
+    Write-Host ''
+    Write-Host "Update failed: $($_.Exception.Message)" -ForegroundColor Red
+    if ($FromApp) { Read-Host 'Press Enter to close this window' | Out-Null }
+    exit 1
+}
 

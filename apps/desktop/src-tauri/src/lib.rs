@@ -13,6 +13,7 @@ pub mod repo;
 pub mod scheduler;
 pub mod spool;
 pub mod state;
+pub mod updater;
 
 use std::sync::Arc;
 
@@ -276,6 +277,11 @@ pub fn run() {
             commands::ai_settings_set,
             commands::ai_status,
             commands::ai_test,
+            commands::update_settings_get,
+            commands::update_settings_set,
+            commands::update_status,
+            commands::update_check,
+            commands::update_run,
             commands::ai_extract,
             commands::ai_breakdown,
             commands::plan_day,

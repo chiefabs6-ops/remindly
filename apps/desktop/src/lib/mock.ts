@@ -721,6 +721,30 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return value;
   },
   ai_status: () => ({ enabled: !!(store.settings.ai as { enabled?: boolean } | undefined)?.enabled, reachable: false, version: null, models: [], modelInstalled: false }),
+  update_settings_get: () => (store.settings.updates as object | undefined) ?? { repo: String.raw`C:\Users\you\Desktop\Apps\tether` },
+  update_settings_set: ({ value }) => {
+    const repo = String((value as { repo?: string }).repo ?? "");
+    if (!/tether$/i.test(repo.trim().replace(/[\\/]+$/, ""))) {
+      return err("invalid", `${repo} is not the Tether source folder (no scripts/update-app.ps1 in it)`);
+    }
+    store.settings.updates = value;
+    return value;
+  },
+  // store.settings.updatesStatus overrides fields (tests use it, e.g. { canUpdate: false, reason: "..." }).
+  update_status: () => ({
+    repo: (store.settings.updates as { repo?: string } | undefined)?.repo ?? String.raw`C:\Users\you\Desktop\Apps\tether`,
+    problem: null,
+    running: "a1b2c3d",
+    branch: "main",
+    dirty: false,
+    latest: "f00ba12",
+    behind: 2,
+    canUpdate: true,
+    reason: null,
+    ...((store.settings.updatesStatus as object | undefined) ?? {}),
+  }),
+  update_check: () => handlers.update_status({}),
+  update_run: () => undefined,
   ai_test: () =>
     (store.settings.ai as { enabled?: boolean } | undefined)?.enabled
       ? err("invalid", "Ollama is not running on this PC. Start Ollama and try again.")

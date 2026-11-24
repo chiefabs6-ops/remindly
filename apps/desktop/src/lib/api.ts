@@ -78,6 +78,23 @@ export interface AiStatus {
   modelInstalled: boolean;
 }
 
+export interface UpdateSettings {
+  repo: string;
+}
+
+export interface UpdateStatus {
+  repo: string;
+  problem: string | null;
+  /** 7-character commit id of this app, or "unknown". */
+  running: string;
+  branch: string | null;
+  dirty: boolean;
+  latest: string | null;
+  behind: number | null;
+  canUpdate: boolean;
+  reason: string | null;
+}
+
 export interface AiResult<T> {
   value: T;
   tokensPerSecond: number;
@@ -207,6 +224,13 @@ export const api = {
   aiTest: () => call<AiResult<boolean>>("ai_test"),
   aiExtract: (text: string, pageTitle: string | null) => call<AiResult<Extracted>>("ai_extract", { text, pageTitle }),
   aiBreakdown: (id: string) => call<AiResult<string[]>>("ai_breakdown", { id }),
+  updateSettings: () => call<UpdateSettings>("update_settings_get"),
+  setUpdateSettings: (value: UpdateSettings) => call<UpdateSettings>("update_settings_set", { value }),
+  updateStatus: () => call<UpdateStatus>("update_status"),
+  /** Fetches from GitHub first, so it can fail when offline. */
+  updateCheck: () => call<UpdateStatus>("update_check"),
+  /** Opens a separate window that pulls, builds, then closes and reopens Tether. */
+  updateRun: () => call<void>("update_run"),
   planDay: () => call<DayPlan>("plan_day"),
   codeProjects: () => call<CodeProject[]>("code_projects_list"),
   linkCodeProject: (id: string, projectId: string | null) =>

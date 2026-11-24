@@ -65,9 +65,6 @@ function Body({ t }: { t: TaskDetail }) {
             <button type="button" className="btn btn-sm hide-m" aria-haspopup="dialog" onClick={(e) => resched.open(e.currentTarget)}><CalendarClock size={14} />Reschedule</button>
           )}
           {resched.anchor && <ReschedulePopover anchor={resched.anchor} value={t.dueDate} onPick={ed.reschedule} onClose={resched.close} />}
-          <button type="button" className={`btn btn-sm ${done ? "" : "btn-primary"}`} disabled={ed.toggle.isPending} onClick={() => ed.toggle.mutate(undefined)}>
-            {done ? <><RotateCcw size={13} />Reopen</> : <><Check size={13} />Mark done</>}
-          </button>
           <button type="button" className="btn btn-sm btn-ghost btn-icon hide-m" title="Open in new window" aria-label="Open in new window"
             onClick={() => api.openTaskWindow(t.id).catch((e) => alert(errorMessage(e)))}><AppWindow size={15} /></button>
           <MoreMenu t={t} ed={ed} onDeleted={() => navigate("/tasks", { replace: true })} />

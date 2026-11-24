@@ -171,12 +171,13 @@ describe("Full task page", () => {
     expect(await screen.findByRole("button", { name: /^Priority: High/ })).toBeInTheDocument();
   });
 
-  it("Mark done completes the task and shows a toast with Undo", async () => {
+  it("Mark complete completes the task and shows a toast with Undo; the top bar has no second button", async () => {
     const user = userEvent.setup();
     const id = await taskId("Approve October expense claims");
     window.location.hash = `#/task/${id}`;
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Mark done" }));
+    await user.click(await screen.findByRole("button", { name: "Mark complete" }));
+    expect(screen.queryByRole("button", { name: "Mark done" })).not.toBeInTheDocument();
     const toast = await screen.findByRole("status");
     await waitFor(() => expect(toast).toHaveTextContent(/Completed/));
     await waitFor(async () => expect((await mockInvoke<{ status: string }>("task_get", { id })).status).toBe("completed"));
