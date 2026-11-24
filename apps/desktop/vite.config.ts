@@ -33,7 +33,7 @@ export default defineConfig(() => ({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    // Screen tests render the whole app; with 9 files in parallel (and on CI) a few need more than 5 s.
+    // Screen tests render the whole app; with all test files in parallel (and on CI) a few need more than 5 s.
     testTimeout: 20_000,
   },
 }));

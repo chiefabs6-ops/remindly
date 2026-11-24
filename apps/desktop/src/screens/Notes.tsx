@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ArrowLeft, Check, Ellipsis, Link2, ListChecks, Plus, Trash2, Video } from "lucide-react";
-import type { Meeting, Note, NoteKind, Project } from "@tether/core";
+import type { Meeting, Note, NoteKind, Project, SuggestedTask, Suggestion } from "@tether/core";
 import { api, errorMessage } from "../lib/api";
 import { toneDot } from "../lib/colors";
 import { dueLabel } from "../lib/format";
-import { useAction, useMeetingForNote, useNotes, useProjects, useTask, useTasks } from "../lib/queries";
+import { useAction, useMeetingForNote, useNotes, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
 import { Popover, usePopover } from "../components/ui/Popover";
 
 const KINDS: Record<NoteKind, string> = { general: "General", meeting: "Meeting", idea: "Idea", research: "Research", work: "Work" };
@@ -63,9 +63,10 @@ function MeetingBar({ meeting }: { meeting: Meeting }) {
   );
 }
 
-interface ActionItem { text: string; who: string | null; done: boolean }
+interface ActionItem { text: string; who: string | null; done: boolean; dueDate: string | null }
 
-/** Lines under an "Action items" heading in the note body. "(Name) text" marks someone else's item. */
+/** Lines under an "Action items" heading in the note body. "(Name) text" marks someone else's item;
+ *  a trailing "(due YYYY-MM-DD)" (as meeting summaries write it) becomes the due date. */
 export function actionItems(body: string): ActionItem[] {
   const out: ActionItem[] = [];
   let inSection = false;
@@ -79,36 +80,54 @@ export function actionItems(body: string): ActionItem[] {
     const m = /^[-*]\s+(?:\[( |x|X)\]\s+)?(.*)$/.exec(line);
     if (!m || !m[2].trim()) continue;
     const who = /^\(([^)]+)\)\s*(.*)$/.exec(m[2]);
-    out.push({ done: m[1] === "x" || m[1] === "X", who: who ? who[1] : null, text: (who ? who[2] : m[2]).trim() });
+    let text = (who ? who[2] : m[2]).trim();
+    const due = /\s*\(due (\d{4}-\d{2}-\d{2})\)\s*$/i.exec(text);
+    if (due) text = text.slice(0, due.index).trim();
+    out.push({ done: m[1] === "x" || m[1] === "X", who: who ? who[1] : null, text, dueDate: due ? due[1] : null });
   }
   return out;
 }
 
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * One of your action items. Meeting summaries already send your items to the Inbox as suggestions,
+ * so the row points there instead of making a second task; an item that already has a task links to it.
+ * Both are looked up from the data, so the state survives leaving the note.
+ */
+function ActionItemRow({ a, note, pending }: { a: ActionItem; note: Note; pending: Suggestion[] }) {
+  const existing = useTasks({ query: a.text, topLevelOnly: true, limit: 20 });
+  const task = existing.data?.find((t) => same(t.title, a.text));
+  const suggestion = pending.find((s) => s.kind === "task" && same(String((s.payload as SuggestedTask).title ?? ""), a.text));
+  const make = useAction(() => api.createTask({ title: a.text, dueDate: a.dueDate, projectId: note.projectId }));
+  return (
+    <div className="nt-ai">
+      <span>{a.text}</span>
+      <small>{a.who ?? "You"}{a.dueDate ? ` · due ${a.dueDate}` : ""}</small>
+      {task ? (
+        <Link className="pill pill-positive" to={`/task/${task.id}`} style={{ textDecoration: "none" }}><Check size={12} />Task</Link>
+      ) : a.done ? (
+        <span className="text-xs text-muted">Done</span>
+      ) : a.who ? (
+        <span className="text-xs text-muted">Not yours</span>
+      ) : suggestion ? (
+        <Link className="pill" to={`/inbox?s=${suggestion.id}`} style={{ textDecoration: "none" }}>In Inbox</Link>
+      ) : (
+        <button type="button" className="btn btn-sm" disabled={make.isPending || existing.isLoading} aria-label={`Make task: ${a.text}`}
+          onClick={() => make.mutate(undefined)}>Make task</button>
+      )}
+    </div>
+  );
+}
+
 function ActionItems({ note }: { note: Note }) {
   const items = actionItems(note.bodyMd);
-  const [made, setMade] = useState<Record<number, string>>({});
-  const make = useAction(({ i, text }: { i: number; text: string }) =>
-    api.createTask({ title: text, projectId: note.projectId }).then((t) => { setMade((m) => ({ ...m, [i]: t.id })); return t; }));
+  const pending = useSuggestions("pending");
   if (items.length === 0) return null;
   return (
     <div className="sec" aria-label="Action items">
       <div className="sec-h">Action items<span className="c num">{items.length}</span></div>
-      {items.map((a, i) => (
-        <div key={i} className="nt-ai">
-          <span>{a.text}</span>
-          <small>{a.who ?? "You"}</small>
-          {made[i] ? (
-            <Link className="pill pill-positive" to={`/task/${made[i]}`} style={{ textDecoration: "none" }}><Check size={12} />Task</Link>
-          ) : a.done ? (
-            <span className="text-xs text-muted">Done</span>
-          ) : a.who ? (
-            <span className="text-xs text-muted">Not yours</span>
-          ) : (
-            <button type="button" className="btn btn-sm" disabled={make.isPending} aria-label={`Make task: ${a.text}`}
-              onClick={() => make.mutate({ i, text: a.text })}>Make task</button>
-          )}
-        </div>
-      ))}
+      {items.map((a) => <ActionItemRow key={`${a.who ?? ""}|${a.text}`} a={a} note={note} pending={pending.data ?? []} />)}
     </div>
   );
 }
@@ -159,14 +178,39 @@ function Editor({ note, projects, onBack, onDeleted }: { note: Note; projects: P
     setF((cur) => (cur.title === old.title && cur.bodyMd === old.bodyMd ? { title: note.title, bodyMd: note.bodyMd } : cur));
   }, [note]);
 
-  const save = useAction((patch: Patch) =>
-    api.updateNote(note.id, {
-      title: f.title, bodyMd: f.bodyMd, kind: note.kind, projectId: note.projectId, taskId: note.taskId, tags: note.tags, ...patch,
-    }));
-  const convert = useAction(() => api.convertNote(note.id));
+  // Latest text and note in refs, so a save on leave or after a running save uses what is on screen.
+  const latest = useRef({ f, note });
+  latest.current = { f, note };
+  const inputOf = (patch: Patch) => {
+    const { f: cur, note: n } = latest.current;
+    return { title: cur.title, bodyMd: cur.bodyMd, kind: n.kind, projectId: n.projectId, taskId: n.taskId, tags: n.tags, ...patch };
+  };
+  const again = useRef(false);
+  const save = useAction((patch: Patch) => api.updateNote(note.id, inputOf(patch)));
+  const convert = useAction(async () => {
+    if (isDirty()) await api.updateNote(note.id, inputOf({}));
+    return api.convertNote(note.id);
+  });
   const remove = useAction(() => api.deleteNote(note.id));
+  const isDirty = () => latest.current.f.title !== latest.current.note.title || latest.current.f.bodyMd !== latest.current.note.bodyMd;
   const dirty = f.title !== note.title || f.bodyMd !== note.bodyMd;
-  const saveText = () => { if (dirty && !save.isPending) save.mutate({}); };
+  // Never drop a save: if one is running, run another when it finishes.
+  const saveText = () => {
+    if (!isDirty()) return;
+    if (save.isPending) { again.current = true; return; }
+    save.mutate({}, { onSettled: () => { if (again.current) { again.current = false; if (isDirty()) save.mutate({}); } } });
+  };
+  // Autosave shortly after typing stops, and save whatever is left when the note is closed.
+  useEffect(() => {
+    if (!dirty) return;
+    const t = setTimeout(saveText, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.title, f.bodyMd]);
+  useEffect(() => () => {
+    if (isDirty()) void api.updateNote(latest.current.note.id, inputOf({})).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const kindPop = usePopover();
   const projPop = usePopover();
@@ -199,8 +243,8 @@ function Editor({ note, projects, onBack, onDeleted }: { note: Note; projects: P
           ))}
         </Popover>
         <div className="acts">
-          <button type="button" className="btn btn-sm hide-m" disabled={dirty || convert.isPending}
-            title={dirty ? "Save first" : "One task per “- ” line, or one task from the title"}
+          <button type="button" className="btn btn-sm hide-m" disabled={convert.isPending}
+            title="One task per “- ” line, or one task from the title"
             onClick={() => convert.mutate(undefined, { onSuccess: (ts) => navigate(ts[0] ? `/task/${ts[0].id}` : "/tasks") })}>
             <ListChecks size={14} />Turn lines into tasks
           </button>

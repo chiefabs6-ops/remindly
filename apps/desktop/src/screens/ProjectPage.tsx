@@ -24,7 +24,7 @@ export function ProjectPage() {
   const invalidate = useInvalidateAll();
   const projects = useProjects();
   const tasks = useTasks({ statuses: OPEN, topLevelOnly: true, projectId });
-  const notes = useNotes({ projectId, limit: 8 });
+  const notes = useNotes({ projectId, limit: 200 });
   const folders = useQuery({ queryKey: ["tether", "code-projects"], queryFn: api.codeProjects });
   const overdueBy = useOverdueByProject();
   const linkedIds = useLinkedProjectIds();
@@ -163,7 +163,7 @@ export function ProjectPage() {
                     <Link className="a" to={`/notes?project=${project.id}`}>All notes</Link>
                   </div>
                   <div className="card-b">
-                    {notes.data?.length ? notes.data.map((n) => (
+                    {notes.data?.length ? notes.data.slice(0, 8).map((n) => (
                       <Link key={n.id} to={`/notes?note=${n.id}`} className="wl">
                         <StickyNote size={14} strokeWidth={1.6} aria-hidden="true" />
                         <span className="tx">{n.title || n.bodyMd.split("\n")[0] || "Untitled"}<small>{n.kind === "meeting" ? "Meeting" : "Note"} · {ago(n.updatedAt)}</small></span>

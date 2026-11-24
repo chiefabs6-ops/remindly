@@ -39,15 +39,20 @@ export function ProjectForm({ onDone, submitLabel = "Add project" }: { onDone?: 
   );
 }
 
+function ProjectLink({ id, archived, children }: { id: string; archived: boolean; children: React.ReactNode }) {
+  return archived ? <div className="pj-li">{children}</div> : <Link to={`/projects/${id}`} className="pj-li">{children}</Link>;
+}
+
 function Row({ p, overdue, linked }: { p: Project; overdue: number; linked: boolean }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(p.name);
-  const [color, setColor] = useState(p.color ?? PROJECT_COLORS[0]);
+  // Keep "no colour" unless the user picks one; a rename must not save a colour they never chose.
+  const [color, setColor] = useState<string | null>(p.color);
   const [description, setDescription] = useState(p.description ?? "");
   const save = useAction(() => api.updateProject(p.id, { name, color, description: description.trim() || null }));
   const archive = useAction(() => api.archiveProject(p.id, !p.archivedAt));
   const remove = useAction(() => api.deleteProject(p.id));
-  const cancel = () => { setEditing(false); setName(p.name); setColor(p.color ?? PROJECT_COLORS[0]); setDescription(p.description ?? ""); };
+  const cancel = () => { setEditing(false); setName(p.name); setColor(p.color); setDescription(p.description ?? ""); };
   return (
     <li className={`pj-item ${p.archivedAt ? "archived" : ""}`}>
       {editing ? (
@@ -81,7 +86,8 @@ function Row({ p, overdue, linked }: { p: Project; overdue: number; linked: bool
         </form>
       ) : (
         <>
-          <Link to={`/projects/${p.id}`} className="pj-li">
+          {/* Archived projects have no page; their row is not a link. */}
+          <ProjectLink id={p.id} archived={!!p.archivedAt}>
             <span className="t">
               <i className="dot" style={{ background: toneDot(p.color) }} aria-hidden="true" />
               <span className="name">{p.name}</span>
@@ -92,7 +98,7 @@ function Row({ p, overdue, linked }: { p: Project; overdue: number; linked: bool
               <span className={`num ${overdue > 0 ? "od" : ""}`}>{overdue} overdue</span>
               {linked && <span className="r"><Code2 size={13} strokeWidth={1.6} aria-label="Claude Code repo linked" /></span>}
             </span>
-          </Link>
+          </ProjectLink>
           <div className="pj-acts">
             <button className="btn btn-ghost btn-sm" aria-label={`Edit ${p.name}`} onClick={() => setEditing(true)}>Edit</button>
             <button className="btn btn-ghost btn-sm" aria-label={`${p.archivedAt ? "Restore" : "Archive"} ${p.name}`} onClick={() => archive.mutate(undefined)}>{p.archivedAt ? "Restore" : "Archive"}</button>

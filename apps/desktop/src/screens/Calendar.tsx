@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Bell, ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays, dayDiff, isoDate, type Project, type Task, type TaskStatus } from "@tether/core";
@@ -118,7 +118,7 @@ function WeekGrid({ days, tasks, ctx }: { days: string[]; tasks: Task[]; ctx: Ct
   let end = DEFAULT_END;
   for (const t of timed) {
     start = Math.min(start, Math.floor(toMin(t.dueTime!) / 60));
-    end = Math.max(end, Math.ceil((toMin(t.dueTime!) + BLOCK_MIN) / 60));
+    end = Math.min(24, Math.max(end, Math.ceil((toMin(t.dueTime!) + BLOCK_MIN) / 60)));
   }
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
@@ -126,7 +126,7 @@ function WeekGrid({ days, tasks, ctx }: { days: string[]; tasks: Task[]; ctx: Ct
   const showNow = nowMin >= start * 60 && nowMin < end * 60;
 
   return (
-    <div className="cw" role="grid" aria-label="Week">
+    <div className="cw" role="group" aria-label="Week">
       <div className="corner" />
       {days.map((s) => {
         const d = parse(s);
@@ -148,7 +148,7 @@ function WeekGrid({ days, tasks, ctx }: { days: string[]; tasks: Task[]; ctx: Ct
       {days.map((s) => (
         <div key={s} className={`dcol ${s === ctx.today ? "td" : ""}`} data-date={s} aria-label={`Timed ${longDate(s)}`} style={{ height: (end - start) * PX }}>
           {place(timed.filter((t) => t.dueDate === s), start).map(({ t, top, height, lane, lanes }) => (
-            <a key={t.id} className={`ev task ${t.priority === 3 ? "hi" : ""} ${isDone(t) ? "done" : ""}`} href={`#/task/${t.id}`}
+            <a key={t.id} className={`ev task ${t.priority === 3 ? "hi" : ""} ${isDone(t) ? "done" : dueTone(t, ctx.today) === "overdue" ? "od" : ""}`} href={`#/task/${t.id}`}
               style={{ top, height, left: `calc(${(lane / lanes) * 100}% + 4px)`, right: `calc(${((lanes - lane - 1) / lanes) * 100}% + 4px)` }}
               onClick={(e) => { e.preventDefault(); ctx.open(t.id); }}>
               <b>{t.title}</b>
@@ -156,7 +156,7 @@ function WeekGrid({ days, tasks, ctx }: { days: string[]; tasks: Task[]; ctx: Ct
               {t.reminderLead !== null && <Bell size={11} className="bell" aria-label="Has a reminder" />}
             </a>
           ))}
-          {s === ctx.today && showNow && <div className="now" role="presentation" data-testid="now-line" style={{ top: nowTop }} aria-label={`Now ${hm(nowMin)}`} />}
+          {s === ctx.today && showNow && <div className="now" aria-hidden="true" data-testid="now-line" title={`Now ${hm(nowMin)}`} style={{ top: nowTop }} />}
         </div>
       ))}
     </div>
@@ -189,14 +189,14 @@ function Agenda({ days, tasks, ctx }: { days: string[]; tasks: Task[]; ctx: Ctx 
 
 function MonthGrid({ cells, month, tasks, ctx }: { cells: string[]; month: string; tasks: Task[]; ctx: Ctx }) {
   return (
-    <div className="mg" role="grid" aria-label="Month">
+    <div className="mg" role="group" aria-label="Month">
       {cells.slice(0, 7).map((s) => <div key={s} className="mh" role="columnheader">{parse(s).toLocaleDateString("en-IE", { weekday: "short" })}</div>)}
       {cells.map((s) => {
         const items = tasks.filter((t) => t.dueDate === s).sort(byTime);
         return (
           <div key={s} className={`mc ${s.slice(0, 7) !== month ? "out" : ""} ${s === ctx.today ? "td" : ""}`} data-date={s}>
             <b className="num">{parse(s).getDate()}</b>
-            {items.length > 0 && <span className="mcount num" aria-hidden="true">{items.length}</span>}
+            {items.length > 0 && <a className="mcount num" href={`#/calendar?week=${mondayOf(s)}`} aria-label={`${items.length} due ${longDate(s)}: show that week`}>{items.length}</a>}
             <div className="mchips"><ChipList items={items} ctx={ctx} showTime label={longDate(s)} /></div>
           </div>
         );
@@ -207,6 +207,12 @@ function MonthGrid({ cells, month, tasks, ctx }: { cells: string[]; month: strin
 
 export function CalendarScreen() {
   const [params, setParams] = useSearchParams();
+  // Re-render every minute so the "now" line moves and "today" turns over at midnight.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
   const navigate = useNavigate();
   const today = todayIso();
   const projects = useProjects();

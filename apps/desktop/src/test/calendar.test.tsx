@@ -87,7 +87,7 @@ describe("Calendar", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Next week" });
     await user.click(screen.getByRole("button", { name: "Month" }));
-    expect(await screen.findByRole("grid", { name: "Month" })).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Month" })).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toContain("view=month"));
   });
 

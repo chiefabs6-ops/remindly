@@ -120,7 +120,7 @@ function Reminders() {
         <SRow label="Nudge every (minutes, 0 = off)" htmlFor="r-nudge">
           <input id="r-nudge" type="number" min={0} className="field num w-24" value={r.nudgeMinutes} onChange={num("nudgeMinutes")} />
         </SRow>
-        <SRow label="Working hours" help="Nudges and repeats only happen inside these hours.">
+        <SRow label="Working hours" help="Nudges only happen inside these hours; “keep reminding” repeats come at the start of work.">
           <input type="time" aria-label="Work starts" className="field num w-28" value={r.workStart} onChange={(e) => set("workStart", e.target.value)} />
           <span className="muted">to</span>
           <input type="time" aria-label="Work ends" className="field num w-28" value={r.workEnd} onChange={(e) => set("workEnd", e.target.value)} />

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
-import { mockInvoke, resetMock } from "../lib/mock";
+import { mockInvoke, resetMock, sampleStore } from "../lib/mock";
 import { setBackend } from "../lib/api";
 import { queryClient } from "../lib/queries";
 import { actionItems } from "../screens/Notes";
@@ -106,12 +106,54 @@ describe("Notes", () => {
 });
 
 describe("actionItems", () => {
-  it("reads only the Action items section", () => {
-    const body = "## Decisions\n- Ship it\n\n## Action items\n- [ ] Send the report\n- (Sarah) Check translations\n- [x] Done thing\n\n## Transcript\n- not me";
+  it("reads only the Action items section, and the due date meeting summaries add", () => {
+    const body = "## Decisions\n- Ship it\n\n## Action items\n- [ ] Send the report (due 2026-11-27)\n- (Sarah) Check translations\n- [x] Done thing\n\n## Transcript\n- not me";
     expect(actionItems(body)).toEqual([
-      { text: "Send the report", who: null, done: false },
-      { text: "Check translations", who: "Sarah", done: false },
-      { text: "Done thing", who: null, done: true },
+      { text: "Send the report", who: null, done: false, dueDate: "2026-11-27" },
+      { text: "Check translations", who: "Sarah", done: false, dueDate: null },
+      { text: "Done thing", who: null, done: true, dueDate: null },
     ]);
+  });
+
+  it("an item already in the Inbox links there; Make task makes one task that is remembered", async () => {
+    const base = sampleStore();
+    const waiting = { ...base.suggestions[0], id: "sug-venue", origin: "note" as const, status: "pending" as const,
+      payload: { ...(base.suggestions[0].payload as object), title: "Book the venue" } };
+    resetMock({ suggestions: [...base.suggestions, waiting] });
+    const user = userEvent.setup();
+    const note = await mockInvoke<{ id: string }>("note_create", {
+      input: { title: "Planning call", bodyMd: "## Action items\n- [ ] Book the venue\n- [ ] Order badges (due 2026-12-01)", kind: "meeting" },
+    });
+    window.location.hash = `#/notes?note=${note.id}`;
+    const { unmount } = render(<App />);
+    const items = await screen.findByLabelText("Action items");
+    expect(await within(items).findByRole("link", { name: "In Inbox" })).toHaveAttribute("href", "#/inbox?s=sug-venue");
+    expect(within(items).queryByRole("button", { name: "Make task: Book the venue" })).not.toBeInTheDocument();
+
+    await user.click(await within(items).findByRole("button", { name: "Make task: Order badges" }));
+    await waitFor(async () => {
+      const made = await mockInvoke<{ title: string; dueDate: string | null }[]>("tasks_list", { filter: { query: "Order badges" } });
+      expect(made).toHaveLength(1);
+      expect(made[0].dueDate).toBe("2026-12-01");
+    });
+    // Leaving the note and coming back shows the task, not another "Make task".
+    unmount();
+    queryClient.clear();
+    render(<App />);
+    const again = await screen.findByLabelText("Action items");
+    expect(await within(again).findByRole("link", { name: /Task/ })).toBeInTheDocument();
+    expect(within(again).queryByRole("button", { name: "Make task: Order badges" })).not.toBeInTheDocument();
+  });
+
+  it("the note body saves by itself, and when you leave the note", async () => {
+    const user = userEvent.setup();
+    const note = await mockInvoke<{ id: string }>("note_create", { input: { title: "Scratch", bodyMd: "first", kind: "general" } });
+    window.location.hash = `#/notes?note=${note.id}`;
+    const { unmount } = render(<App />);
+    const body = await screen.findByLabelText("Note");
+    await user.type(body, " second");
+    // No blur: closing the note still keeps the text.
+    unmount();
+    await waitFor(async () => expect((await mockInvoke<{ bodyMd: string }>("note_get", { id: note.id })).bodyMd).toBe("first second"));
   });
 });

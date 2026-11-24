@@ -77,3 +77,7 @@
     .mg .mcount { display: inline; position: absolute; right: 6px; top: 6px; font-size: 11px; color: var(--today); }
   }
 }
+
+/* A timed task whose due time has passed. */
+.cal-page .ev.task.od { background: var(--pill-negative-bg); color: var(--pill-negative-ink); border-left-color: var(--negative); }
+.mg .mcount { text-decoration: none; }
