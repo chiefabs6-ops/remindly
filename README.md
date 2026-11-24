@@ -19,6 +19,7 @@ Status: Phases 1–3 built (desktop app, Chrome extension, Claude Code plugin). 
 npm install          # once, from the repo root
 npm run dev          # run the desktop app in dev mode
 npm run build        # build the NSIS installer (apps/desktop/src-tauri/target/release/bundle/nsis)
+npm run update-app   # after the first install: rebuild tether.exe only, swap it in, restart Tether
 npm run typecheck    # TypeScript check
 npm run check:rust   # clippy + cargo test
 ```
