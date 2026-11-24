@@ -160,7 +160,7 @@ export function createServer() {
           [
             line(t),
             t.description ? `\nDescription:\n${t.description}` : "",
-            contextText(t.claudeContext),
+            contextText(t.claudeContext, (t as { source?: string }).source === "ai" ? "local AI" : "Claude"),
             t.notes ? `\nNotes:\n${t.notes}` : "",
             t.subtasks.length ? `\nSubtasks:\n${t.subtasks.map(line).join("\n")}` : "",
             t.history.length ? `\nRecent history:\n${t.history.slice(0, 8).map((h) => `- ${h.at.slice(0, 16)} ${h.action}${h.field ? ` ${h.field}` : ""}`).join("\n")}` : "",

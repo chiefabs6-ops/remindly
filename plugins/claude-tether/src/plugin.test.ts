@@ -28,6 +28,11 @@ describe("task handover text", () => {
     );
   });
 
+  it("names local AI and the meeting it came from", () => {
+    const out = contextText({ meeting: { meetingId: "m1", noteId: "n1", title: "PBL trainers" }, quote: "I'll send it Friday" }, "local AI");
+    expect(out).toBe(["\nHandover from local AI:", "From the meeting: PBL trainers (meeting m1)", "Said in the meeting: I'll send it Friday"].join("\n"));
+  });
+
   it("is empty when there is no handover", () => {
     expect(contextText(null)).toBe("");
     expect(contextText({ remaining: [], why: "  " })).toBe("");

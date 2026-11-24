@@ -271,7 +271,8 @@ describe("Task page", () => {
     await mockInvoke("task_update", { id: t.id, input: { title: "Approve October expense claims", dueDate: todayIso(), dueTime: "09:00", priority: 2, tags: ["finance"] } });
     window.location.hash = `#/task/${t.id}`;
     render(<App />);
-    await user.click(within(await screen.findByRole("group", { name: "Priority" })).getByRole("button", { name: "High" }));
+    await user.click(await screen.findByRole("button", { name: /^Priority: Medium/ }));
+    await user.click(within(await screen.findByRole("menu", { name: "Priority" })).getByRole("menuitemradio", { name: /High/ }));
     await waitFor(async () => {
       const d = await mockInvoke<{ priority: number; tags: string[]; dueTime: string; dueDate: string }>("task_get", { id: t.id });
       expect(d.priority).toBe(3);

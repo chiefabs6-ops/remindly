@@ -5,7 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import App from "../App";
 import { QuickPanel } from "../components/QuickPanel";
-import { mockInvoke, resetMock } from "../lib/mock";
+import { mockInvoke, resetMock, sampleStore } from "../lib/mock";
 import { setBackend } from "../lib/api";
 import { queryClient } from "../lib/queries";
 
@@ -38,6 +38,47 @@ async function taskId(query: string) {
 }
 
 describe("Full task page", () => {
+  it("empty time and do-on fields are buttons, and both can be set", async () => {
+    const user = userEvent.setup();
+    // A dated task without a time.
+    const id = await taskId("Renew domain for portfolio site");
+    window.location.hash = `#/task/${id}`;
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Add due time" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Due time")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add due time" }));
+    const time = await screen.findByLabelText("Due time");
+    await user.type(time, "14:30");
+    await user.tab();
+    await waitFor(async () => expect((await mockInvoke<{ dueTime: string | null }>("task_get", { id })).dueTime).toBe("14:30"));
+
+    await user.click(screen.getByRole("button", { name: /Do on: not set/ }));
+    const picker = await screen.findByRole("dialog", { name: "Reschedule" });
+    await user.click(within(picker).getByRole("button", { name: /^Tomorrow/ }));
+    await waitFor(async () => expect((await mockInvoke<{ scheduledDate: string | null }>("task_get", { id })).scheduledDate).not.toBeNull());
+  });
+
+  it("a task from a meeting summary shows the local AI context with a link to the meeting note", async () => {
+    // A local-AI suggestion from a meeting summary.
+    const base = sampleStore();
+    const claude = base.suggestions.find((x) => x.origin === "claude")!;
+    // Same shape as the meeting worker writes: the quote is also the captured text.
+    const fromMeeting = { ...claude, id: "sug-meeting", origin: "ai" as const,
+      payload: { ...(claude.payload as object), sourceSelection: "I'll send it Friday", sourceTitle: "PBL trainers meeting", sourceUrl: "https://meet.google.com/abc-defg-hij" },
+      context: { meeting: { meetingId: "m1", noteId: "note-1", title: "PBL trainers meeting" }, quote: "I'll send it Friday" } };
+    resetMock({ suggestions: [fromMeeting] });
+    const r = await mockInvoke<{ id: string }>("suggestion_approve", { id: "sug-meeting" });
+    window.location.hash = `#/task/${r.id}`;
+    render(<App />);
+    const ctx = await screen.findByRole("region", { name: "Context from local AI" });
+    expect(within(ctx).getByRole("link", { name: "PBL trainers meeting" })).toHaveAttribute("href", "#/notes?note=note-1");
+    expect(within(ctx).getByText("Said in the meeting")).toBeInTheDocument();
+    // The quote is shown once, not again as "Captured text".
+    expect(screen.queryByRole("region", { name: "Captured text" })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/I'll send it Friday/)).toHaveLength(1);
+    expect((await mockInvoke<{ notes: string | null }>("task_get", { id: r.id })).notes).toBeNull();
+  });
+
   it("shows the title, properties and activity", async () => {
     const id = await taskId("Approve October expense claims");
     await mockInvoke("task_comment", { id, text: "Sent the batch to finance" });
@@ -45,7 +86,7 @@ describe("Full task page", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "Approve October expense claims" })).toBeInTheDocument();
     const props = screen.getByRole("complementary", { name: "Properties" });
-    expect(within(props).getByRole("group", { name: "Priority" })).toBeInTheDocument();
+    expect(within(props).getByRole("button", { name: /^Priority: / })).toBeInTheDocument();
     expect(within(props).getByRole("button", { name: /^Project:/ })).toBeInTheDocument();
     expect(within(props).getByRole("button", { name: /^Status:/ })).toBeInTheDocument();
     expect(within(props).getByRole("group", { name: "Remind me" })).toBeInTheDocument();
@@ -93,14 +134,14 @@ describe("Full task page", () => {
     const id = await taskId("Approve October expense claims");
     window.location.hash = `#/task/${id}`;
     render(<App />);
-    const group = await screen.findByRole("group", { name: "Priority" });
-    await user.click(within(group).getByRole("button", { name: "High" }));
+    await user.click(await screen.findByRole("button", { name: /^Priority: / }));
+    await user.click(within(await screen.findByRole("menu", { name: "Priority" })).getByRole("menuitemradio", { name: /High/ }));
     await waitFor(async () => {
       const d = await mockInvoke<{ priority: number; title: string }>("task_get", { id });
       expect(d.priority).toBe(3);
       expect(d.title).toBe("Approve October expense claims");
     });
-    expect(within(screen.getByRole("group", { name: "Priority" })).getByRole("button", { name: "High" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: /^Priority: High/ })).toBeInTheDocument();
   });
 
   it("Mark done completes the task and shows a toast with Undo", async () => {

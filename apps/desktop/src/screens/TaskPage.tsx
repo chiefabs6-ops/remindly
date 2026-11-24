@@ -47,7 +47,7 @@ function Body({ t }: { t: TaskDetail }) {
   const hideDescription = !!t.description && same(t.description, t.sourceSelection);
 
   return (
-    <article aria-label="Task">
+    <article className="tp-page" aria-label="Task">
       <div className="tp-bar">
         <Link className="btn btn-sm btn-ghost" to="/tasks"><ArrowLeft size={14} />Back to My Tasks</Link>
         <div className="crumbs">

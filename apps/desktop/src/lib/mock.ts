@@ -582,7 +582,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
       sourceUrl: p.sourceUrl ?? null,
       sourceTitle: p.sourceTitle ?? null,
       sourceSelection: p.sourceSelection ?? null,
-      claudeContext: s.origin === "claude" ? (s.context ?? null) : null,
+      claudeContext: s.origin === "claude" || s.origin === "ai" ? (s.context ?? null) : null,
     });
     store.tasks.push(t);
     Object.assign(s, { status: "approved", resultingId: t.id, decidedAt: now() });

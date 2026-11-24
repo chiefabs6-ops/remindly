@@ -64,19 +64,26 @@ export async function openExternal(url: string) {
 
 const LABELS: Record<string, string> = {
   completed: "Done", remaining: "Left to do", why: "Why", resumeHint: "Pick up at", repository: "Repository", branch: "Branch",
+  quote: "Said in the meeting",
 };
-const ORDER = ["completed", "remaining", "why", "resumeHint", "repository", "branch"];
+const ORDER = ["meeting", "quote", "completed", "remaining", "why", "resumeHint", "repository", "branch"];
 const asText = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : "");
 
 /** Claude's context saved with the task (newer tasks): "said" first, then the known fields in a fixed order, then anything else. */
 export function contextParts(ctx: Record<string, unknown> | null | undefined): { said: string | null; parts: CtxPart[] } {
   if (!ctx) return { said: null, parts: [] };
   const said = asText(ctx.said) || null;
+  const meeting = ctx.meeting && typeof ctx.meeting === "object" ? (ctx.meeting as Record<string, unknown>) : null;
   const keys = [...ORDER.filter((k) => k in ctx), ...Object.keys(ctx).filter((k) => k !== "said" && !ORDER.includes(k))];
   const parts: CtxPart[] = [];
   for (const k of keys) {
     const v = ctx[k];
     const label = LABELS[k] ?? k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()).trim();
+    if (k === "meeting") {
+      // From a meeting summary: link back to the meeting note.
+      if (meeting) parts.push({ label: "From the meeting", text: asText(meeting.title) || "Meeting", link: asText(meeting.noteId) ? `/notes?note=${encodeURIComponent(asText(meeting.noteId))}` : undefined });
+      continue;
+    }
     if (Array.isArray(v)) {
       const items = v.map(asText).filter(Boolean);
       if (items.length) parts.push({ label, items });
@@ -86,7 +93,7 @@ export function contextParts(ctx: Record<string, unknown> | null | undefined): {
 }
 
 /** Older tasks: Claude context is stored as Markdown inside the task notes: "**Label**" + "- item" lines, or "**Label:** text". */
-export interface CtxPart { label: string; text?: string; items?: string[] }
+export interface CtxPart { label: string; text?: string; items?: string[]; /** In-app link, e.g. the meeting note. */ link?: string }
 export function parseContext(md: string | null): CtxPart[] {
   const parts: CtxPart[] = [];
   let cur: CtxPart | null = null;
