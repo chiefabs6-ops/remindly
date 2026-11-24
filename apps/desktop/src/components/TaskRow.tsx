@@ -152,6 +152,9 @@ export function rowDue(t: Task, today = todayIso()): { text: string; cls: "od" |
   return { text, cls: "" };
 }
 
+/** dataTransfer type that carries a task id, so the sidebar and calendar can tell task drags from other drags. */
+export const TASK_DND = "application/x-tether-task";
+
 export interface ListRowProps {
   task: Task;
   project?: Project;
@@ -227,7 +230,10 @@ export function ListRow(p: ListRowProps) {
         // Portalled popovers bubble through React; only clicks on the row itself open it.
         if (e.currentTarget.contains(e.target as Node) && !(e.target as HTMLElement).closest("button,a")) p.onOpen(t.id);
       }}
-      onDragStart={(e) => p.onDragStart?.(e, t.id)}
+      onDragStart={(e) => {
+        p.onDragStart?.(e, t.id);
+        e.dataTransfer?.setData(TASK_DND, t.id);
+      }}
       onDragOver={(e) => p.onDragOver?.(e, t.id)}
       onDrop={(e) => p.onDrop?.(e, t.id)}
       onDragEnd={p.onDragEnd}

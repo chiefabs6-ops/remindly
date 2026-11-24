@@ -137,6 +137,12 @@
 .tp-side .remcard { background: var(--surface); }
 .tp-side .qa2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
 .tp-side .qa2 .btn { justify-content: center; }
+.tp-side .qa2-done { grid-column: 1 / -1; }
+.td-badge { flex: none; margin-top: 5px; }
+.rep-hint { flex-basis: 100%; font-size: 12px; color: var(--faint); }
+.rep-custom { display: grid; grid-template-columns: auto 72px 1fr; gap: 8px; align-items: center; padding: 10px; font-size: 13px; }
+.rep-custom .tinput { border-color: var(--control); background: var(--raised); }
+.rep-acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Narrow: one column, properties under the title. */
 @container task (max-width: 759px) {

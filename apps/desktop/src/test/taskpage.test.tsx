@@ -184,6 +184,77 @@ describe("Full task page", () => {
     await waitFor(async () => expect((await mockInvoke<{ status: string }>("task_get", { id })).status).not.toBe("completed"));
   });
 
+  it("the full page title has no checkbox", async () => {
+    const id = await taskId("Approve October expense claims");
+    window.location.hash = `#/task/${id}`;
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: "Approve October expense claims" });
+    expect(screen.queryByRole("button", { name: "Complete task" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reopen task" })).not.toBeInTheDocument();
+  });
+
+  it("Mark complete completes the task, shows Reopen and a Completed badge", async () => {
+    const user = userEvent.setup();
+    const id = await taskId("Approve October expense claims");
+    window.location.hash = `#/task/${id}`;
+    render(<App />);
+    const side = await screen.findByRole("complementary", { name: "Properties" });
+    await user.click(within(side).getByRole("button", { name: "Mark complete" }));
+    await waitFor(async () => expect((await mockInvoke<{ status: string }>("task_get", { id })).status).toBe("completed"));
+    expect(await within(side).findByRole("button", { name: "Reopen" })).toBeInTheDocument();
+    expect(within(side).queryByRole("button", { name: "Tomorrow" })).not.toBeInTheDocument();
+    expect(document.querySelector(".td-badge")).toHaveTextContent("Completed");
+    await user.click(within(side).getByRole("button", { name: "Reopen" }));
+    await waitFor(async () => expect((await mockInvoke<{ status: string }>("task_get", { id })).status).not.toBe("completed"));
+  });
+
+  it("the Repeat menu sets a repeat, and a repeating task makes the next one when completed", async () => {
+    const user = userEvent.setup();
+    const id = await taskId("Approve October expense claims");
+    window.location.hash = `#/task/${id}`;
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /^Repeat: does not repeat/i }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Every week" }));
+    await waitFor(async () =>
+      expect((await mockInvoke<{ repeat: unknown }>("task_get", { id })).repeat).toEqual({ every: 1, unit: "week" }));
+    expect(await screen.findByRole("button", { name: /^Repeat: Every week/ })).toBeInTheDocument();
+    expect(screen.getByText(/Next one is due .* after you complete it/)).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("complementary", { name: "Properties" })).getByRole("button", { name: "Mark complete" }));
+    const toast = await screen.findByRole("status");
+    await waitFor(() => expect(toast).toHaveTextContent(/Done\. Next one due \w{3} \d{1,2} \w{3}/));
+    const done = await mockInvoke<{ repeatNextId: string | null }>("task_get", { id });
+    expect(done.repeatNextId).toBeTruthy();
+    const next = await mockInvoke<{ status: string; repeat: unknown }>("task_get", { id: done.repeatNextId });
+    expect(next.status).toBe("not_started");
+    expect(next.repeat).toEqual({ every: 1, unit: "week" });
+    // Undo removes the untouched copy.
+    await user.click(within(toast).getByRole("button", { name: "Undo" }));
+    await waitFor(async () => expect((await mockInvoke<{ repeatNextId: string | null }>("task_get", { id })).repeatNextId).toBeNull());
+  });
+
+  it("a custom repeat can be saved, and a subtask has no Repeat row", async () => {
+    const user = userEvent.setup();
+    const id = await taskId("Approve October expense claims");
+    window.location.hash = `#/task/${id}`;
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /^Repeat:/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Custom…" }));
+    const every = await screen.findByLabelText("Repeat every");
+    await user.clear(every);
+    await user.type(every, "3");
+    await user.selectOptions(screen.getByLabelText("Repeat unit"), "month");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(async () =>
+      expect((await mockInvoke<{ repeat: unknown }>("task_get", { id })).repeat).toEqual({ every: 3, unit: "month" }));
+    expect(await screen.findByRole("button", { name: /^Repeat: Every 3 months/ })).toBeInTheDocument();
+
+    const sub = await mockInvoke<{ id: string }>("task_create", { input: { title: "A subtask" }, parentId: id });
+    window.location.hash = `#/task/${sub.id}`;
+    await screen.findByRole("heading", { level: 1, name: "A subtask" });
+    expect(screen.queryByRole("button", { name: /^Repeat:/ })).not.toBeInTheDocument();
+  });
+
   it("Escape goes back to My Tasks", async () => {
     const user = userEvent.setup();
     const id = await taskId("Approve October expense claims");

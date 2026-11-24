@@ -234,6 +234,14 @@ function LocalAi() {
     if (cfg.data) setA(cfg.data);
   }, [cfg.data]);
   const save = useAction((v: AiSettings) => api.setAiSettings(v));
+  // Test connection: a real round-trip to the model, then re-check Ollama's status.
+  const conn = useAction(async () => {
+    try {
+      return await api.aiTest();
+    } finally {
+      void status.refetch();
+    }
+  });
   const test = useAction(() => api.aiExtract("Please send the updated teacher list to the programme lead before Friday", null));
   if (!a) return <div className="sskel" aria-busy="true" />;
   const dirty = JSON.stringify(a) !== JSON.stringify(cfg.data);
@@ -260,8 +268,17 @@ function LocalAi() {
         <button type="button" className="btn" disabled={!cfg.data?.enabled || test.isPending} onClick={() => test.mutate(undefined)}>
           {test.isPending ? "Thinking…" : "Try it"}
         </button>
+        <button type="button" className="btn" disabled={!cfg.data?.enabled || conn.isPending} onClick={() => conn.mutate(undefined)}>
+          Test connection
+        </button>
+        {!cfg.data?.enabled && <span className="muted">Turn Local AI on first</span>}
         {test.data && <span className="num muted">{test.data.tokensPerSecond.toFixed(1)} tokens/s on this PC</span>}
       </div>
+      <p className={conn.isError ? "err pad" : "muted pad"} role="status" aria-live="polite">
+        {conn.isPending ? "Testing… (the first run can take up to a minute while the model loads)"
+          : conn.isError ? errorMessage(conn.error)
+          : conn.data ? `Working — the model replied (${conn.data.tokensPerSecond.toFixed(1)} tokens/s)` : ""}
+      </p>
       {test.data && <p className="sample">Example: “{test.data.value.title}”{test.data.value.dueDate ? `, due ${test.data.value.dueDate}` : ""}</p>}
       {(save.error ?? test.error) && <p className="err pad">{errorMessage(save.error ?? test.error)}</p>}
     </form>

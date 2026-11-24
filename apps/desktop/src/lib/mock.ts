@@ -6,6 +6,7 @@ import {
   addDays,
   isoDate,
   isoTime,
+  nextRepeatDue,
   type Dashboard,
   type HistoryEntry,
   type Meeting,
@@ -72,6 +73,8 @@ function task(p: Partial<Task> & { title: string }): Task {
     claudeContext: null,
     nextReminder: null,
     snoozedUntil: null,
+    repeat: null,
+    repeatNextId: null,
     ...p,
   };
 }
@@ -380,6 +383,9 @@ const handlers: Record<string, (a: Args) => unknown> = {
   search_all: ({ query }) => ({
     tasks: listTasks({ query }),
     notes: store.notes.filter((n) => !n.deletedAt && (n.title + n.bodyMd).toLowerCase().includes(String(query).toLowerCase())),
+    projects: String(query).trim()
+      ? projectsList(false).filter((p) => p.name.toLowerCase().includes(String(query).trim().toLowerCase()))
+      : [],
   }),
   tasks_list: ({ filter }) => listTasks(filter ?? {}),
   task_get: ({ id: tid }) => {
@@ -415,7 +421,27 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const t = getTask(tid);
     if (!t) return err("not_found", "task not found");
     const set = (x: Task) => Object.assign(x, applyInput(x, { ...x, status }));
+    const was = t.status;
+    const next = t.repeatNextId ? getTask(t.repeatNextId) : null;
     set(t);
+    if (!t.parentId && was !== status) {
+      if (status === "completed" && t.repeat && !next) {
+        // Same rule as the Rust core: the next copy is due `repeat` after today; subtasks reset.
+        const stamp = now();
+        const copy: Task = {
+          ...t, id: id(), status: "not_started", completedAt: null, archivedAt: null, scheduledDate: null,
+          dueDate: nextRepeatDue(isoDate(new Date()), t.repeat.every, t.repeat.unit),
+          repeatNextId: null, createdAt: stamp, updatedAt: stamp,
+        };
+        store.tasks.push(copy);
+        store.tasks.filter((s) => s.parentId === tid && live(s)).forEach((s) =>
+          store.tasks.push({ ...s, id: id(), parentId: copy.id, status: "not_started", completedAt: null, createdAt: stamp, updatedAt: stamp }));
+        t.repeatNextId = copy.id;
+      } else if (was === "completed" && next && next.status === "not_started" && next.updatedAt === next.createdAt) {
+        store.tasks.forEach((x) => (x.id === next.id || x.parentId === next.id) && !x.deletedAt && (x.deletedAt = now()));
+        t.repeatNextId = null;
+      }
+    }
     if (cascade && (status === "completed" || status === "archived"))
       store.tasks.filter((s) => s.parentId === tid && live(s)).forEach(set);
     return withCounts(t);
@@ -476,6 +502,12 @@ const handlers: Record<string, (a: Args) => unknown> = {
   },
   task_open_window: () => undefined,
   projects_list: ({ includeArchived }) => projectsList(!!includeArchived),
+  projects_reorder: ({ ids }) => {
+    (ids as string[]).forEach((pid, i) => {
+      const p = store.projects.find((x) => x.id === pid);
+      if (p) p.sortOrder = i;
+    });
+  },
   project_create: ({ input }: Args) => {
     input = input as ProjectInput;
     const name = input.name.trim();
@@ -635,6 +667,16 @@ const handlers: Record<string, (a: Args) => unknown> = {
     logHistory(tid, "update", null, "reminder");
     return withCounts(t);
   },
+  task_set_repeat: ({ id: tid, repeat }) => {
+    const t = getTask(tid);
+    if (!t) return err("not_found", "task not found");
+    const r = (repeat ?? null) as Task["repeat"];
+    if (r && !(r.every >= 1 && r.every <= 365)) return err("invalid", "repeat must be every 1-365");
+    if (r && t.parentId) return err("invalid", "a subtask cannot repeat; make its parent task repeat");
+    Object.assign(t, { repeat: r, updatedAt: now() });
+    logHistory(tid, "update", null, "repeat");
+    return withCounts(t);
+  },
   suggestion_merge: ({ id: sid, taskId }) => {
     const s = store.suggestions.find((x) => x.id === sid);
     if (!s) return err("not_found", "suggestion not found");
@@ -679,6 +721,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return value;
   },
   ai_status: () => ({ enabled: !!(store.settings.ai as { enabled?: boolean } | undefined)?.enabled, reachable: false, version: null, models: [], modelInstalled: false }),
+  ai_test: () =>
+    (store.settings.ai as { enabled?: boolean } | undefined)?.enabled
+      ? err("invalid", "Ollama is not running on this PC. Start Ollama and try again.")
+      : err("invalid", "Local AI is off. Turn it on in Settings."),
   ai_extract: () => err("invalid", "Ollama is not running on this PC. Start Ollama and try again."),
   ai_breakdown: () => ({ value: ["Fix validation errors", "Test Irish translations", "Check the full profile flow"], tokensPerSecond: 9.8 }),
   plan_day: () => {

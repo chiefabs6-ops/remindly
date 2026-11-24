@@ -76,7 +76,7 @@ function Body({ t }: { t: TaskDetail }) {
       <div className="tp">
         <div className="tp-head">
           {t.parentId && <p className="td-parent">Subtask of <Link className="underline" to={`/task/${t.parentId}`}>the parent task</Link></p>}
-          <TitleBlock t={t} ed={ed} as="h1" />
+          <TitleBlock t={t} ed={ed} as="h1" checkbox={false} />
         </div>
 
         <div className="tp-main">
@@ -94,12 +94,17 @@ function Body({ t }: { t: TaskDetail }) {
           <div className="sec-h">Properties</div>
           <Properties t={t} ed={ed} full />
           <ReminderCard t={t} ed={ed} />
-          {!done && (
-            <div className="qa2">
-              <button type="button" className="btn btn-sm" onClick={ed.tomorrow}>Tomorrow</button>
-              <button type="button" className="btn btn-sm" onClick={ed.nextWeek}>Next week</button>
-            </div>
-          )}
+          <div className="qa2">
+            {!done && (
+              <>
+                <button type="button" className="btn btn-sm" onClick={ed.tomorrow}>Tomorrow</button>
+                <button type="button" className="btn btn-sm" onClick={ed.nextWeek}>Next week</button>
+              </>
+            )}
+            <button type="button" className="btn btn-sm btn-primary qa2-done" disabled={ed.toggle.isPending} onClick={() => ed.toggle.mutate(undefined)}>
+              {done ? <><RotateCcw size={13} />Reopen</> : <><Check size={13} />Mark complete</>}
+            </button>
+          </div>
           <div className="stamp"><span>Created {ago(t.createdAt)}</span><span>Updated {ago(t.updatedAt)}</span></div>
         </aside>
       </div>

@@ -10,6 +10,7 @@ import "./styles/calendar.css";
 import "./styles/notes.css";
 import "./styles/projects.css";
 import "./styles/settings.css";
+import "./styles/palette.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

@@ -132,6 +132,27 @@ pub fn status(cfg: &AiSettings) -> AiStatus {
     }
 }
 
+/// A tiny prompt to prove the model answers. Allows time for the model to load the first time.
+pub fn test(cfg: &AiSettings) -> AppResult<(bool, f64)> {
+    #[derive(Deserialize)]
+    struct Reply {
+        ok: bool,
+    }
+    let schema = json!({
+        "type": "object",
+        "properties": { "ok": { "type": "boolean" } },
+        "required": ["ok"]
+    });
+    let (r, tps): (Reply, f64) = chat_with(
+        cfg,
+        "You are a connection test.",
+        "Reply with ok set to true.",
+        schema,
+        Duration::from_secs(90),
+    )?;
+    Ok((r.ok, tps))
+}
+
 /// One structured chat call: the reply must match `schema`. Returns the value and tokens/second.
 fn chat<T: DeserializeOwned>(
     cfg: &AiSettings,

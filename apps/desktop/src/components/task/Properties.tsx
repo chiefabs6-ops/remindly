@@ -8,6 +8,7 @@ import { Segmented } from "../ui/Controls";
 import { Popover, usePopover } from "../ui/Popover";
 import { ReschedulePopover } from "../ui/Reschedule";
 import { CommitInput } from "./CommitInput";
+import { RepeatControl } from "./RepeatControl";
 import type { TaskEdit } from "./useTaskEdit";
 
 const icon = { size: 14, strokeWidth: 1.6 };
@@ -99,6 +100,8 @@ export function Properties({ t, ed, full }: { t: TaskDetail; ed: TaskEdit; full?
           ))}
         </Popover>
       </dd>
+
+      <RepeatControl t={t} ed={ed} />
 
       {full && (
         <>

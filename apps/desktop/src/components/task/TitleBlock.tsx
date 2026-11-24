@@ -40,12 +40,13 @@ export function SourceLine({ t }: { t: TaskDetail }) {
 }
 
 /** Check + editable title + where the task came from. */
-export function TitleBlock({ t, ed, as = "h2" }: { t: TaskDetail; ed: TaskEdit; as?: "h1" | "h2" }) {
+export function TitleBlock({ t, ed, as = "h2", checkbox = true }: { t: TaskDetail; ed: TaskEdit; as?: "h1" | "h2"; checkbox?: boolean }) {
   return (
     <>
       <div className="dtitle">
-        <Check done={ed.done} high={t.priority === 3} label={ed.done ? "Reopen task" : "Complete task"} onToggle={() => ed.toggle.mutate(undefined)} disabled={ed.toggle.isPending} />
+        {checkbox && <Check done={ed.done} high={t.priority === 3} label={ed.done ? "Reopen task" : "Complete task"} onToggle={() => ed.toggle.mutate(undefined)} disabled={ed.toggle.isPending} />}
         <EditableTitle as={as} value={t.title} done={ed.done} onCommit={(title) => ed.patch.mutate({ title })} />
+        {!checkbox && ed.done && <span className="pill td-badge">Completed</span>}
       </div>
       <SourceLine t={t} />
     </>
