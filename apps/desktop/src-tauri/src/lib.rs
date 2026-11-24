@@ -42,6 +42,38 @@ pub(crate) fn show_main_window(app: &AppHandle) {
         .build();
 }
 
+/// A task in its own window: label `task-<id>`, same app bundle routed to `#/task/<id>`.
+/// Focuses the window if that task is already open.
+pub(crate) fn open_task_window(
+    app: &AppHandle,
+    task_id: &str,
+    title: &str,
+) -> crate::error::AppResult<()> {
+    // Task ids are ULIDs; refuse anything else so the label and URL stay well-formed.
+    if task_id.is_empty() || !task_id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(crate::error::AppError::invalid("bad task id"));
+    }
+    let label = format!("task-{task_id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let short: String = title.chars().take(60).collect();
+    WebviewWindowBuilder::new(
+        app,
+        &label,
+        WebviewUrl::App(format!("index.html#/task/{task_id}").into()),
+    )
+    .title(format!("{short} — Tether"))
+    .inner_size(1040.0, 760.0)
+    .min_inner_size(560.0, 480.0)
+    .build()
+    .map_err(|e| crate::error::AppError::invalid(format!("could not open window: {e}")))?;
+    Ok(())
+}
+
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Tether", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Tether", true, None::<&str>)?;
@@ -191,6 +223,11 @@ pub fn run() {
             commands::task_duplicate,
             commands::task_delete,
             commands::task_restore,
+            commands::task_reorder,
+            commands::task_link_add,
+            commands::task_link_remove,
+            commands::task_comment,
+            commands::task_open_window,
             commands::projects_list,
             commands::project_create,
             commands::project_update,

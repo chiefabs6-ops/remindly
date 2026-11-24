@@ -11,6 +11,7 @@ use crate::error::{AppError, AppResult};
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_init.sql"),
     include_str!("migrations/002_meetings.sql"),
+    include_str!("migrations/003_task_links.sql"),
 ];
 
 pub struct Db {
@@ -151,6 +152,40 @@ mod tests {
         assert_eq!(db.read(schema_version).unwrap(), MIGRATIONS.len());
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn upgrades_a_v2_database_with_data() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        configure(&conn, false).unwrap();
+        for sql in &MIGRATIONS[..2] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute(
+            "INSERT INTO tasks(id, title, created_at, updated_at) VALUES ('t1', 'Old task', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), MIGRATIONS.len());
+        let title: String = conn
+            .query_row("SELECT title FROM tasks WHERE id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(title, "Old task");
+        conn.execute(
+            "INSERT INTO task_links(id, task_id, url, created_at) VALUES ('l1', 't1', 'https://a.com', 'x')",
+            [],
+        )
+        .unwrap();
+        // The table itself refuses non-web links, as a second line of defence.
+        assert!(
+            conn.execute(
+                "INSERT INTO task_links(id, task_id, url, created_at) VALUES ('l2', 't1', 'javascript:x', 'x')",
+                [],
+            )
+            .is_err()
+        );
     }
 
     #[test]

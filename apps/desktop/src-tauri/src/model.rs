@@ -150,6 +150,18 @@ pub struct TaskDetail {
     pub task: Task,
     pub subtasks: Vec<Task>,
     pub history: Vec<HistoryEntry>,
+    pub links: Vec<TaskLink>,
+}
+
+/// A web link the user attached to a task (http/https only).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskLink {
+    pub id: String,
+    pub task_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

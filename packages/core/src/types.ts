@@ -84,6 +84,16 @@ export interface HistoryEntry {
 export interface TaskDetail extends Task {
   subtasks: Task[];
   history: HistoryEntry[];
+  links: TaskLink[];
+}
+
+/** A web link attached to a task (http/https only; the backend refuses anything else). */
+export interface TaskLink {
+  id: string;
+  taskId: string;
+  url: string;
+  title: string | null;
+  createdAt: string;
 }
 
 /** Editable fields; used for create and full update (absent = cleared). */

@@ -286,6 +286,15 @@ mod tests {
         let done = mk(&db, "done", Some("2026-11-23"), None, None);
         db.write(|c| tasks::set_status(c, &done.id, TaskStatus::Completed, false, Actor::User))
             .unwrap();
+        // Pin the completion time to the test clock's day (set_status stamps the real now).
+        db.write(|c| {
+            c.execute(
+                "UPDATE tasks SET completed_at = '2026-11-23T09:00:00.000Z' WHERE id = ?1",
+                [&done.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
 
         let d = db.read(|c| build(c, &clock())).unwrap();
         assert_eq!(titles(&d.overdue), ["late", "late today"]);
