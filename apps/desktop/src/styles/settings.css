@@ -1,3 +1,50 @@
-/* settings page (mockup E). */
+/* settings page (mockup E). Scoped under .set. */
 @layer components {
+  .set { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; padding: 20px 28px 48px; }
+  .set nav { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 1px; align-self: start; padding-top: 46px; }
+  .set nav button { height: 32px; display: flex; align-items: center; padding: 0 10px; border-radius: 6px; color: var(--muted); font-size: 13px; text-align: left; background: none; border: 0; cursor: pointer; white-space: nowrap; }
+  .set nav button:hover { background: var(--hover); color: var(--text); }
+  .set nav button.on { background: var(--active); color: var(--text); font-weight: 500; }
+  .set-main { min-width: 0; max-width: 720px; }
+  .set-main h1 { margin: 0 0 18px; font: 600 22px/28px var(--font-sans); letter-spacing: -0.015em; }
+  .set section { margin-bottom: 28px; }
+  .set h2 { margin: 0 0 4px; font: 600 15px var(--font-sans); }
+  .set .lead { margin: 0 0 10px; color: var(--faint); font-size: 12.5px; }
+  .set .muted { color: var(--muted); }
+  .set .err { color: var(--negative); }
+  .set .pad { padding: 8px 0; }
+
+  .srow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; min-height: 56px; padding: 10px 0; border-top: 1px solid var(--rule); }
+  .srow .l { font-size: 13.5px; min-width: 0; }
+  .srow .l small { display: block; color: var(--faint); font-size: 12px; margin-top: 1px; }
+  .srow .r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .srow.stack { grid-template-columns: 1fr; align-items: start; }
+  .srow .code { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.2em; }
+  .sfs { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .sfs:disabled { opacity: 0.6; }
+  .sfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0 0; border-top: 1px solid var(--rule); }
+  .sskel { height: 160px; border-radius: var(--radius-control); background: var(--active); }
+  .sempty { margin: 0; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius-control); color: var(--muted); }
+  .sample { margin: 12px 0 0; padding: 12px; border-radius: var(--radius-control); background: var(--raised); }
+  .blist { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-control); }
+  .blist li { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--rule); }
+  .blist li:last-child { border-bottom: 0; }
+  .blist .size { width: 80px; text-align: right; font-size: 12px; color: var(--muted); }
+  .days { display: flex; flex-wrap: wrap; gap: 4px; }
+  .days button { height: 28px; width: 46px; border-radius: 6px; font-size: 12.5px; border: 0; cursor: pointer; background: var(--active); color: var(--muted); }
+  .days button[aria-pressed="true"] { background: var(--primary); color: var(--primary-ink); }
+
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+  .status i { width: 7px; height: 7px; border-radius: 50%; background: var(--positive); }
+  .status.off i { background: var(--faint); }
+
+  @media (max-width: 1023px) {
+    .set { grid-template-columns: 1fr; padding: 16px; }
+    .set nav { position: static; flex-direction: row; overflow-x: auto; padding-top: 0; order: 2; }
+    .set-main { order: 3; }
+  }
+  @media (max-width: 639px) {
+    .srow { grid-template-columns: 1fr; }
+    .srow .r { justify-content: flex-start; }
+  }
 }
