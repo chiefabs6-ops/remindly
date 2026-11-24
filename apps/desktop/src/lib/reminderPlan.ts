@@ -35,11 +35,10 @@ export function taskMoments(t: Plannable, rules: ReminderRules, from: Date, to: 
   const push = (when: Date, kind: MomentKind) => { if (when > from && when <= to) out.push({ taskId: t.id, title: t.title, at: when, kind }); };
   // A one-off "remind me at…" is extra; it never silences the others.
   if (t.nextReminder) push(new Date(t.nextReminder), "once");
-  // A snooze from a notification pauses everything else until it fires.
-  if (t.snoozedUntil) {
-    push(new Date(t.snoozedUntil), "snooze");
-    return out;
-  }
+  // A snooze from a notification pauses everything else until it fires, then they carry on.
+  const snoozeAt = t.snoozedUntil ? new Date(t.snoozedUntil) : null;
+  if (snoozeAt) push(snoozeAt, "snooze");
+  const paused = (m: Moment) => !!snoozeAt && m.kind !== "once" && m.kind !== "snooze" && m.at <= snoozeAt;
   if (!t.dueDate) return out;
   const morning = at(t.dueDate, rules.workStart);
   if (t.dueTime) {
@@ -64,7 +63,7 @@ export function taskMoments(t: Plannable, rules: ReminderRules, from: Date, to: 
       day.setDate(day.getDate() + 1);
     }
   }
-  return out;
+  return out.filter((m) => !paused(m));
 }
 
 /** Moments falling on one local day (YYYY-MM-DD), earliest first. */

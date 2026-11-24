@@ -147,5 +147,9 @@ describe("reminderMoments (same rules as the scheduler)", () => {
     const snoozed = new Date(2026, 10, 24, 16, 0).toISOString();
     expect(line(reminderMoments([{ ...base, title: "S", dueDate: "2026-11-24", dueTime: "15:00", snoozedUntil: snoozed }], "2026-11-24", rules)))
       .toEqual(["16:00 S"]);
+    // Snoozed until 10:00: the 14:45 reminder still comes afterwards.
+    const morning = new Date(2026, 10, 24, 10, 0).toISOString();
+    expect(line(reminderMoments([{ ...base, title: "M", dueDate: "2026-11-24", dueTime: "15:00", snoozedUntil: morning }], "2026-11-24", rules)))
+      .toEqual(["10:00 M", "14:45 M"]);
   });
 });

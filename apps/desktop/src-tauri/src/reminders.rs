@@ -465,7 +465,6 @@ pub fn due_notices(
     Ok(fresh)
 }
 
-/// Snooze a task's reminders until `until`.
 /// A one-off reminder chosen on the task ("Custom…"): replaces an earlier one-off, and does not
 /// silence the task's other reminders.
 pub fn remind_at(conn: &Connection, task_id: &str, at: DateTime<Local>) -> AppResult<()> {
@@ -481,6 +480,7 @@ pub fn remind_at(conn: &Connection, task_id: &str, at: DateTime<Local>) -> AppRe
     Ok(())
 }
 
+/// Snooze a task's reminders until `until` (from a notification): the others wait until it fires.
 pub fn snooze(conn: &Connection, task_id: &str, until: DateTime<Local>) -> AppResult<()> {
     tasks::get(conn, task_id)?;
     conn.execute(
