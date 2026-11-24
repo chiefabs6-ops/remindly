@@ -155,6 +155,7 @@ body {
   align-items: center;
   flex: none;
   white-space: nowrap;
+  gap: 5px;
   height: 20px;
   padding: 0 7px;
   border-radius: 4px;

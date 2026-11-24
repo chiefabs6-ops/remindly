@@ -172,5 +172,30 @@ describe("Quick panel", () => {
     const preset = await screen.findByRole("button", { name: "15 min before" });
     await user.click(preset);
     await waitFor(() => expect(screen.getByRole("button", { name: "15 min before" })).toHaveAttribute("aria-pressed", "true"));
+    expect((await mockInvoke<{ reminderLead: number | null }>("task_get", { id })).reminderLead).toBe(15);
+  });
+
+  it("keep reminding until done is saved on the task", async () => {
+    const user = userEvent.setup();
+    const id = await taskId("Approve October expense claims");
+    await renderPanel(id);
+    await user.click(await screen.findByRole("switch", { name: /Keep reminding me until it/ }));
+    await waitFor(async () =>
+      expect((await mockInvoke<{ reminderRepeat: boolean }>("task_get", { id })).reminderRepeat).toBe(true));
+    await waitFor(() => expect(screen.getByRole("switch", { name: /Keep reminding me until it/ })).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("a task approved from Claude shows what you said, apart from the notes", async () => {
+    const pending = await mockInvoke<{ id: string; origin: string }[]>("suggestions_list", { status: "pending" });
+    const s = pending.find((x) => x.origin === "claude")!;
+    const r = await mockInvoke<{ id: string }>("suggestion_approve", { id: s.id });
+    window.location.hash = `#/task/${r.id}`;
+    render(<App />);
+    const ctx = await screen.findByRole("region", { name: "Context from Claude" });
+    expect(within(ctx).getByText("You said")).toBeInTheDocument();
+    expect(within(ctx).getByText(/I'll wire the save tomorrow/)).toBeInTheDocument();
+    expect(within(ctx).getByText("Left to do")).toBeInTheDocument();
+    const t = await mockInvoke<{ notes: string | null }>("task_get", { id: r.id });
+    expect(t.notes).toBeNull();
   });
 });

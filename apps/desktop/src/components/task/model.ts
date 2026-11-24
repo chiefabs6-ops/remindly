@@ -62,7 +62,30 @@ export async function openExternal(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-/** Claude context is stored as Markdown inside the task notes: "**Label**" + "- item" lines, or "**Label:** text". */
+const LABELS: Record<string, string> = {
+  completed: "Done", remaining: "Left to do", why: "Why", resumeHint: "Pick up at", repository: "Repository", branch: "Branch",
+};
+const ORDER = ["completed", "remaining", "why", "resumeHint", "repository", "branch"];
+const asText = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : "");
+
+/** Claude's context saved with the task (newer tasks): "said" first, then the known fields in a fixed order, then anything else. */
+export function contextParts(ctx: Record<string, unknown> | null | undefined): { said: string | null; parts: CtxPart[] } {
+  if (!ctx) return { said: null, parts: [] };
+  const said = asText(ctx.said) || null;
+  const keys = [...ORDER.filter((k) => k in ctx), ...Object.keys(ctx).filter((k) => k !== "said" && !ORDER.includes(k))];
+  const parts: CtxPart[] = [];
+  for (const k of keys) {
+    const v = ctx[k];
+    const label = LABELS[k] ?? k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()).trim();
+    if (Array.isArray(v)) {
+      const items = v.map(asText).filter(Boolean);
+      if (items.length) parts.push({ label, items });
+    } else if (asText(v)) parts.push({ label, text: asText(v) });
+  }
+  return { said, parts };
+}
+
+/** Older tasks: Claude context is stored as Markdown inside the task notes: "**Label**" + "- item" lines, or "**Label:** text". */
 export interface CtxPart { label: string; text?: string; items?: string[] }
 export function parseContext(md: string | null): CtxPart[] {
   const parts: CtxPart[] = [];

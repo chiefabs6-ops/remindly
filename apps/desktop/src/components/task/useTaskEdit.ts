@@ -16,6 +16,7 @@ export function useTaskEdit(t: TaskDetail) {
   // Moving the date keeps the saved time; a cleared time stays cleared.
   const resched = useAction((date: string | null) => rescheduleTask(t.id, date));
   const remind = useAction((iso: string) => api.remindAt(t.id, iso));
+  const setReminder = useAction((r: { lead: number | null; repeat: boolean }) => api.setReminder(t.id, r.lead, r.repeat));
   const duplicate = useAction(() => api.duplicate(t.id));
   const remove = useAction(() => api.deleteTask(t.id));
 
@@ -43,9 +44,9 @@ export function useTaskEdit(t: TaskDetail) {
   };
   const today = todayIso();
   const busy = patch.isPending || setStatus.isPending || resched.isPending || toggle.isPending;
-  const error = toggle.error ?? duplicate.error ?? remove.error ?? patch.error ?? setStatus.error ?? resched.error ?? remind.error;
+  const error = toggle.error ?? duplicate.error ?? remove.error ?? patch.error ?? setStatus.error ?? resched.error ?? remind.error ?? setReminder.error;
   return {
-    done, busy, error, latest, patch, setStatus, toggle, reschedule, remind, duplicate, remove, saveTags,
+    done, busy, error, latest, patch, setStatus, toggle, reschedule, remind, setReminder, duplicate, remove, saveTags,
     setPriority: (p: Priority) => patch.mutate({ priority: p }),
     tomorrow: () => reschedule(addDays(today, 1)),
     nextWeek: () => reschedule(addDays(today, 7)),

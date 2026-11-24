@@ -22,11 +22,12 @@ function whyLine(s: Suggestion, p: SuggestedTask): { quote?: string; text?: stri
   return text ? { text } : {};
 }
 
-export function SuggestionTray({ projects }: { projects: Project[] }) {
+/** `startOpen`: open on arrival (links such as /tasks?tray=1 from Overview and Inbox). */
+export function SuggestionTray({ projects, startOpen = false }: { projects: Project[]; startOpen?: boolean }) {
   const sugg = useSuggestions("pending");
   const toast = useToast();
   const invalidate = useInvalidateAll();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [busy, setBusy] = useState<string | null>(null);
   // Edit opens the full review form in place, so approving keeps Claude's source and context.
   const [editing, setEditing] = useState<string | null>(null);

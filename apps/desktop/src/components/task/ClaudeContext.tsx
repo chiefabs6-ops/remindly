@@ -2,11 +2,12 @@ import { Globe } from "lucide-react";
 import type { TaskDetail } from "@tether/core";
 import { hostOf } from "../../lib/format";
 import { ClaudeMark } from "../ui/Bits";
-import { openExternal, parseContext, type CtxPart } from "./model";
+import { contextParts, openExternal, parseContext, type CtxPart } from "./model";
 
 const RESUME = /resume|pick|continue|where/i;
+const META = /^(repository|branch)$/i;
 
-/** "**bold**" inside a line. */
+/** "**bold**" inside a line (older Markdown context only). */
 function bold(s: string) {
   return s.split(/(\*\*[^*]+\*\*)/g).map((x, i) => (x.startsWith("**") && x.endsWith("**") ? <strong key={i}>{x.slice(2, -2)}</strong> : x));
 }
@@ -23,21 +24,26 @@ function Part({ p }: { p: CtxPart }) {
 }
 
 /**
- * What Claude handed over with the task (it is saved as Markdown in the task notes).
- * The quick panel shows the short form: the first line of context and where to pick up. The page shows all of it.
+ * What Claude handed over with the task. Newer tasks keep it in `claudeContext` (with the user's own
+ * words in `said`); older ones have it as Markdown in the notes. The quick panel shows the short form:
+ * what you said and where to pick up. The page shows all of it.
  */
 export function ClaudeContext({ t, full }: { t: TaskDetail; full?: boolean }) {
-  if (t.source !== "claude" || !t.notes) return null;
-  const all = parseContext(t.notes);
-  if (all.length === 0) return null;
-  const first = all.find((p) => p.text && !RESUME.test(p.label));
+  if (t.source !== "claude") return null;
+  const structured = contextParts(t.claudeContext);
+  const said = structured.said;
+  const all = t.claudeContext ? structured.parts : parseContext(t.notes);
+  if (!said && all.length === 0) return null;
   const resume = all.find((p) => RESUME.test(p.label));
+  const first = said ? undefined : all.find((p) => p.text && !RESUME.test(p.label) && !META.test(p.label));
   const shown = full ? all : [first, resume].filter((p): p is CtxPart => !!p);
-  if (shown.length === 0) return null;
   return (
     <section className="sec" aria-label="Context from Claude">
       <div className="sec-h"><ClaudeMark size={13} />Context from Claude</div>
-      <div className="ctx">{shown.map((p, i) => <Part key={i} p={p} />)}</div>
+      <div className="ctx">
+        {said && (<><div className="lbl">You said</div><p>“{said}”</p></>)}
+        {shown.map((p, i) => <Part key={i} p={p} />)}
+      </div>
     </section>
   );
 }
