@@ -5,7 +5,7 @@ import type { Meeting, Note, NoteKind, Project, SuggestedTask, Suggestion } from
 import { api, errorMessage } from "../lib/api";
 import { toneDot } from "../lib/colors";
 import { dueLabel } from "../lib/format";
-import { useAction, useMeetingForNote, useNotes, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
+import { keys, queryClient, useAction, useMeetingForNote, useNotes, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
 import { Popover, usePopover } from "../components/ui/Popover";
 
 const KINDS: Record<NoteKind, string> = { general: "General", meeting: "Meeting", idea: "Idea", research: "Research", work: "Work" };
@@ -208,7 +208,8 @@ function Editor({ note, projects, onBack, onDeleted }: { note: Note; projects: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.title, f.bodyMd]);
   useEffect(() => () => {
-    if (isDirty()) void api.updateNote(latest.current.note.id, inputOf({})).catch(() => {});
+    // Refresh the cache afterwards, so a stale copy of this note can never be saved over it.
+    if (isDirty()) void api.updateNote(latest.current.note.id, inputOf({})).then(() => queryClient.invalidateQueries({ queryKey: keys.all })).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
