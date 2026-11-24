@@ -38,6 +38,33 @@ async function taskId(query: string) {
 }
 
 describe("Full task page", () => {
+  it("links in the description are clickable, and clicking the text still edits it", async () => {
+    const user = userEvent.setup();
+    const id = await taskId("Approve October expense claims");
+    await mockInvoke("task_update", { id, input: { title: "Approve October expense claims", description: "Check https://app.clickup.com/t/26441883/869fp12dv please" } });
+    window.location.hash = `#/task/${id}`;
+    render(<App />);
+    expect(await screen.findByRole("link", { name: "https://app.clickup.com/t/26441883/869fp12dv" }))
+      .toHaveAttribute("href", "https://app.clickup.com/t/26441883/869fp12dv");
+    // The description text is readable as text (not hidden inside a button).
+    expect(screen.getByText(/please/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit description" }));
+    const box = await screen.findByRole("textbox", { name: "Description" });
+    await user.clear(box);
+    await user.type(box, "New text");
+    await user.tab();
+    await waitFor(async () => expect((await mockInvoke<{ description: string | null }>("task_get", { id })).description).toBe("New text"));
+
+    // Escape cancels: nothing is saved.
+    await user.click(screen.getByRole("button", { name: "Edit description" }));
+    const again = await screen.findByRole("textbox", { name: "Description" });
+    await user.clear(again);
+    await user.type(again, "Thrown away");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Description" })).not.toBeInTheDocument());
+    expect((await mockInvoke<{ description: string | null }>("task_get", { id })).description).toBe("New text");
+  });
+
   it("empty time and do-on fields are buttons, and both can be set", async () => {
     const user = userEvent.setup();
     // A dated task without a time.

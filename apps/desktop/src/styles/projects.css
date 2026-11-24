@@ -64,7 +64,7 @@
   .pj-page .card .trow.np .trow-hov { right: 110px; }
 
   /* Projects list / management */
-  .pj-manage { padding: 24px 32px 48px; max-width: 880px; }
+  .pj-manage { padding: 24px 32px 48px; }
   .pj-manage h1 { margin: 0; font: 600 22px/28px var(--font-sans); letter-spacing: -0.015em; }
   .pj-manage .sum { margin: 2px 0 0; color: var(--muted); }
   .pj-new { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }

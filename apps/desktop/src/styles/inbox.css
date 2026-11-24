@@ -1,6 +1,7 @@
 /* Inbox page (mockup E). */
 @layer components {
-.ib { max-width: 860px; margin: 0 auto; padding: 20px 28px 80px; }
+/* Full width, like the other pages (no centred column with empty space either side). */
+.ib { padding: 20px 28px 80px; }
 .ib-h h1 { margin: 0; font: 600 22px/28px var(--font-sans); letter-spacing: -0.015em; }
 .ib-h .summary { color: var(--muted); font-size: 13px; margin: 2px 0 16px; }
 .capc { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-top: 12px; }
