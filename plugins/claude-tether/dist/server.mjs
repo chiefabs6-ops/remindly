@@ -34820,6 +34820,7 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
         completed: external_exports.array(external_exports.string().max(500)).max(30).optional().describe("What is already done"),
         remaining: external_exports.array(external_exports.string().max(500)).min(1).max(30).describe("Concrete steps left"),
         why: external_exports.string().max(1e3).optional(),
+        said: external_exports.string().max(500).optional().describe(`The user's own words that showed the work is unfinished, quoted exactly (e.g. "I'll finish this tomorrow"). Omit if they said nothing like that.`),
         resumeHint: external_exports.string().min(3).max(2e3).describe("Where to continue: files, branch, commands, failing test"),
         dueDate: DATE.optional().describe("Only if the user named a time ('tomorrow' \u2192 that date)"),
         dueTime: TIME.optional(),
@@ -34859,6 +34860,7 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
           origin: "claude",
           payload,
           context: {
+            ...a.said?.trim() ? { said: a.said.trim() } : {},
             completed: a.completed ?? [],
             remaining: a.remaining,
             why: a.why ?? "",

@@ -141,6 +141,14 @@ pub struct Task {
     pub tags: Vec<String>,
     pub subtask_count: i64,
     pub subtask_done: i64,
+    /// None = the app default; minutes before the due time; -1 = the morning of the due day.
+    pub reminder_lead: Option<i64>,
+    /// Once overdue, remind every working day at the start of work until done.
+    pub reminder_repeat: bool,
+    /// Context from an approved Claude suggestion (said / completed / remaining / why / resumeHint).
+    pub claude_context: Option<serde_json::Value>,
+    /// Next one-off reminder ("remind me at…" / snooze) not yet shown, RFC 3339 UTC.
+    pub next_reminder: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -238,6 +246,8 @@ pub struct Project {
     pub created_at: String,
     pub updated_at: String,
     pub open_tasks: i64,
+    /// Top-level tasks completed in the last 30 days.
+    pub done_recent: i64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

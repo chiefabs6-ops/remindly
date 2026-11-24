@@ -102,6 +102,16 @@ pub fn task_restore(s: Db, id: String) -> AppResult<Task> {
 }
 
 #[tauri::command(async)]
+pub fn task_set_reminder(s: Db, id: String, lead: Option<i64>, repeat: bool) -> AppResult<Task> {
+    s.db.write(|c| tasks::set_reminder(c, &id, lead, repeat, Actor::User))
+}
+
+#[tauri::command(async)]
+pub fn suggestion_merge(s: Db, id: String, task_id: String) -> AppResult<Approved> {
+    s.db.write(|c| suggestions::merge_into(c, &id, &task_id))
+}
+
+#[tauri::command(async)]
 pub fn task_reorder(s: Db, ids: Vec<String>) -> AppResult<()> {
     s.db.write(|c| tasks::reorder(c, &ids))
 }

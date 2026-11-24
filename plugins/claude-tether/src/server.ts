@@ -232,6 +232,11 @@ export function createServer() {
         completed: z.array(z.string().max(500)).max(30).optional().describe("What is already done"),
         remaining: z.array(z.string().max(500)).min(1).max(30).describe("Concrete steps left"),
         why: z.string().max(1000).optional(),
+        said: z
+          .string()
+          .max(500)
+          .optional()
+          .describe("The user's own words that showed the work is unfinished, quoted exactly (e.g. \"I'll finish this tomorrow\"). Omit if they said nothing like that."),
         resumeHint: z.string().min(3).max(2000).describe("Where to continue: files, branch, commands, failing test"),
         dueDate: DATE.optional().describe("Only if the user named a time ('tomorrow' → that date)"),
         dueTime: TIME.optional(),
@@ -271,6 +276,7 @@ export function createServer() {
           origin: "claude",
           payload,
           context: {
+            ...(a.said?.trim() ? { said: a.said.trim() } : {}),
             completed: a.completed ?? [],
             remaining: a.remaining,
             why: a.why ?? "",

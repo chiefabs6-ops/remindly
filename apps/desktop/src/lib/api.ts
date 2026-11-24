@@ -145,6 +145,8 @@ export const api = {
   deleteTask: (id: string) => call<void>("task_delete", { id }),
   restoreTask: (id: string) => call<Task>("task_restore", { id }),
   reorderTasks: (ids: string[]) => call<void>("task_reorder", { ids }),
+  setReminder: (id: string, lead: number | null, repeat: boolean) => call<Task>("task_set_reminder", { id, lead, repeat }),
+  mergeSuggestion: (id: string, taskId: string) => call<{ kind: string; id: string }>("suggestion_merge", { id, taskId }),
   addLink: (id: string, url: string, title?: string | null) =>
     call<TaskLink>("task_link_add", { id, url, title: title ?? null }),
   removeLink: (linkId: string) => call<void>("task_link_remove", { linkId }),
