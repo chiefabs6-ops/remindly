@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "npm run tauri dev -w apps/desktop",
     "build": "npm run tauri build -w apps/desktop",
+    "update-app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-app.ps1",
     "typecheck": "npm exec -w apps/desktop -- tsc --noEmit && npm run typecheck -w packages/core && npm run typecheck -w @tether/extension && npm run typecheck -w @tether/claude-plugin",
     "test": "npm test -w packages/core && npm test -w apps/desktop && npm test -w @tether/extension && npm test -w @tether/claude-plugin",
     "check:rust": "cd apps/desktop/src-tauri && cargo clippy && cargo test",
