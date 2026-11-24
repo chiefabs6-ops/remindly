@@ -117,12 +117,16 @@
 .tp-bar .acts { margin-left: auto; display: flex; gap: 6px; flex: none; }
 /* The page sizes itself to its own width (sidebar or not, main window or pop-out), not the screen's. */
 .tp-page { container: task / inline-size; }
-.tp { display: grid; grid-template-columns: minmax(0, 1fr) clamp(330px, 36%, 384px); align-items: start; }
-.tp-head { grid-column: 1 / -1; padding: 28px 40px 0; max-width: 1100px; }
+.tp { display: grid; grid-template-columns: minmax(0, 1fr) clamp(330px, 30%, 420px); align-items: start; }
+.tp-head { grid-column: 1; grid-row: 1; padding: 28px 32px 0 40px; min-width: 0; }
+.tp-main { grid-column: 1; grid-row: 2; }
+/* The properties card sits level with the title, beside the whole task. */
+.tp > .tp-side { grid-column: 2; grid-row: 1 / span 2; }
 .tp-head .td-title { font-size: 24px; line-height: 32px; }
 .tp-head .dtitle .ck { width: 22px; height: 22px; margin-top: 5px; }
 .tp-head .src { margin-left: 34px; }
-.tp-main { padding: 8px 40px 48px; min-width: 0; max-width: 820px; }
+/* Text uses all the width up to the properties card (no fixed cap, so wide windows have no gap). */
+.tp-main { padding: 8px 32px 48px 40px; min-width: 0; }
 .tp-main .desc { margin-left: 24px; width: calc(100% - 24px); font-size: 14.5px; line-height: 23px; }
 /* Stays in view while the task scrolls; scrolls on its own if it is taller than the window. */
 .tp-side { position: sticky; top: 64px; margin: 20px 20px 24px 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); max-height: calc(100vh - 140px); overflow-y: auto; scrollbar-width: thin; }
@@ -136,6 +140,8 @@
 @container task (max-width: 759px) {
   .tp { grid-template-columns: minmax(0, 1fr); }
   .tp-side { position: static; margin: 16px 40px 0; order: 0; max-height: none; overflow: visible; }
+  .tp > .tp-side { grid-column: 1; grid-row: 2; margin: 16px 20px 0 20px; }
+  .tp-main { grid-row: 3; }
   .tp-head { order: -1; }
   .tp-main { order: 1; }
 }
