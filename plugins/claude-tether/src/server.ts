@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { chooseDir, describeRepo, rootFromUri, type RepoInfo } from "./project.js";
+import { contextText, type ClaudeContext } from "./format.js";
 import { isGenericTitle } from "./generic.js";
 import { TetherError, TetherOffline, call, dedupeKey, getMeeting, saveMeetingSummary, suggest, type SuggestResult } from "./tether.js";
 
@@ -146,19 +147,20 @@ export function createServer() {
     "get_task",
     {
       title: "Tether: one task",
-      description: "Full details of one task: description, notes and context, subtasks, recent history.",
+      description: "Full details of one task: description, the handover Claude saved (what was said, done, left, where to resume), notes, subtasks, recent history.",
       inputSchema: z.object({ id: z.string().min(1).max(64) }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ id }) => {
       try {
-        const t = await call<TaskRow & { description: string | null; notes: string | null; subtasks: TaskRow[]; history: { at: string; action: string; field: string | null }[] }>(
+        const t = await call<TaskRow & { description: string | null; notes: string | null; claudeContext?: ClaudeContext; subtasks: TaskRow[]; history: { at: string; action: string; field: string | null }[] }>(
           `/v1/tasks/${encodeURIComponent(id)}`,
         );
         return text(
           [
             line(t),
             t.description ? `\nDescription:\n${t.description}` : "",
+            contextText(t.claudeContext),
             t.notes ? `\nNotes:\n${t.notes}` : "",
             t.subtasks.length ? `\nSubtasks:\n${t.subtasks.map(line).join("\n")}` : "",
             t.history.length ? `\nRecent history:\n${t.history.slice(0, 8).map((h) => `- ${h.at.slice(0, 16)} ${h.action}${h.field ? ` ${h.field}` : ""}`).join("\n")}` : "",

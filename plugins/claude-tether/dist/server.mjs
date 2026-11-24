@@ -34509,6 +34509,38 @@ function chooseDir(opts) {
   return opts.explicit?.trim() || opts.roots?.find(Boolean) || env.CLAUDE_PROJECT_DIR?.trim() || opts.cwd || process.cwd();
 }
 
+// src/format.ts
+var LABELS = {
+  said: "You said",
+  completed: "Done",
+  remaining: "Left to do",
+  why: "Why",
+  resumeHint: "Pick up at",
+  repository: "Repository",
+  branch: "Branch"
+};
+var ORDER = ["said", "completed", "remaining", "why", "resumeHint", "repository", "branch"];
+var asText = (v) => typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : "";
+function contextText(ctx) {
+  if (!ctx || typeof ctx !== "object") return "";
+  const keys = [...ORDER.filter((k) => k in ctx), ...Object.keys(ctx).filter((k) => !ORDER.includes(k))];
+  const out = [];
+  for (const k of keys) {
+    const v = ctx[k];
+    const label = LABELS[k] ?? k;
+    if (Array.isArray(v)) {
+      const items = v.map(asText).filter(Boolean);
+      if (items.length) out.push(`${label}:
+${items.map((i) => `- ${i}`).join("\n")}`);
+    } else if (asText(v)) {
+      out.push(k === "said" ? `${label}: "${asText(v)}"` : `${label}: ${asText(v)}`);
+    }
+  }
+  return out.length ? `
+Handover from Claude:
+${out.join("\n")}` : "";
+}
+
 // src/generic.ts
 var VAGUE_WORDS = /* @__PURE__ */ new Set([
   "continue",
@@ -34733,7 +34765,7 @@ function createServer() {
     "get_task",
     {
       title: "Tether: one task",
-      description: "Full details of one task: description, notes and context, subtasks, recent history.",
+      description: "Full details of one task: description, the handover Claude saved (what was said, done, left, where to resume), notes, subtasks, recent history.",
       inputSchema: external_exports.object({ id: external_exports.string().min(1).max(64) }),
       annotations: { readOnlyHint: true, openWorldHint: false }
     },
@@ -34748,6 +34780,7 @@ function createServer() {
             t.description ? `
 Description:
 ${t.description}` : "",
+            contextText(t.claudeContext),
             t.notes ? `
 Notes:
 ${t.notes}` : "",
