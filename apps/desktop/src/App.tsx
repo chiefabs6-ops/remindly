@@ -2,9 +2,11 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Navigate, Route, Routes, useSearchParams } from "react-router";
 import { Layout, useTheme } from "./components/Layout";
 import { queryClient, useSettings } from "./lib/queries";
+import { CalendarScreen } from "./screens/Calendar";
 import { InboxScreen } from "./screens/Inbox";
 import { NotesScreen } from "./screens/Notes";
 import { OverviewScreen } from "./screens/Overview";
+import { ProjectPage } from "./screens/ProjectPage";
 import { ProjectsScreen } from "./screens/Projects";
 import { ReviewScreen } from "./screens/Review";
 import { SettingsScreen } from "./screens/Settings";
@@ -36,7 +38,8 @@ function Shell() {
         <Route path="tasks" element={<TasksScreen />} />
         <Route path="task/:id" element={<TaskPage />} />
         <Route path="projects" element={<ProjectsScreen />} />
-        <Route path="projects/:projectId" element={<TasksScreen />} />
+        <Route path="projects/:projectId" element={<ProjectPage />} />
+        <Route path="calendar" element={<CalendarScreen />} />
         <Route path="notes" element={<NotesScreen />} />
         <Route path="review" element={<ReviewScreen />} />
         <Route path="settings" element={<SettingsScreen />} />

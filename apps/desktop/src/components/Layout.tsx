@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { FolderKanban, Inbox, LayoutDashboard, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
+import { CalendarDays, FolderKanban, Inbox, LayoutDashboard, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
 import type { TaskStatus } from "@tether/core";
 import { api, onNavigate } from "../lib/api";
 import { isPopoutWindow } from "../lib/taskActions";
@@ -113,6 +113,7 @@ export function Layout() {
         <NavItem to="/" icon={<LayoutDashboard {...icon} />} label="Overview" />
         <NavItem to="/inbox" icon={<Inbox {...icon} />} label="Inbox" count={inboxCount} />
         <NavItem to="/tasks" icon={<ListTodo {...icon} />} label="My Tasks" plainCount={openCount} />
+        <NavItem to="/calendar" icon={<CalendarDays {...icon} />} label="Calendar" />
         <NavItem to="/notes" icon={<NotebookPen {...icon} />} label="Notes" />
 
         <div className="mt-6 mb-1 flex items-center px-2.5">
@@ -178,6 +179,7 @@ export function Layout() {
           ["/", "Overview", <LayoutDashboard {...icon} />, 0],
           ["/inbox", "Inbox", <Inbox {...icon} />, inboxCount],
           ["/tasks", "My Tasks", <ListTodo {...icon} />, 0],
+          ["/calendar", "Calendar", <CalendarDays {...icon} />, 0],
           ["/notes", "Notes", <NotebookPen {...icon} />, 0],
           ["/projects", "Projects", <FolderKanban {...icon} />, 0],
         ].map(([to, label, ic, badge]) => (
