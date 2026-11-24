@@ -24,7 +24,10 @@ $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '16'
 $env:CARGO_PROFILE_RELEASE_INCREMENTAL = 'true'
 Push-Location $repo
 try {
+    # Cargo writes progress to stderr; judge the build by its exit code, not by stderr.
+    $ErrorActionPreference = 'Continue'
     npm run tauri build -w apps/desktop -- --no-bundle
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE). The installed app was not changed." }
 } finally {
     Pop-Location
@@ -36,7 +39,7 @@ $running = Get-Process -Name 'tether' -ErrorAction SilentlyContinue | Where-Obje
 $wasRunning = [bool]$running
 foreach ($p in $running) {
     Stop-Process -Id $p.Id -Force
-    $p.WaitForExit(10000) | Out-Null
+    if (-not $p.WaitForExit(10000)) { throw "Could not close Tether. Close it from the tray and run this again." }
 }
 
 Write-Host '3/3 Replacing the app...'
@@ -53,10 +56,14 @@ try {
         }
     }
 } catch {
-    Copy-Item $backup $target -Force
-    throw "Could not replace $target ($($_.Exception.Message)). The old version was put back."
+    $why = $_.Exception.Message
+    try { Copy-Item $backup $target -Force }
+    catch { throw "Could not replace $target ($why), and could not put the old version back. Copy $backup over $target by hand." }
+    throw "Could not replace $target ($why). The old version was put back."
 }
 
-Start-Process $target
+Start-Process -FilePath $target -WorkingDirectory (Split-Path $target)
 $note = if ($wasRunning) { 'restarted' } else { 'started' }
-Write-Host "Done. Tether was updated and $note. The previous version is kept at $backup."
+Write-Host "Done. Tether was updated and $note."
+Write-Host "The previous app file is kept at $backup. It can only open your data if this update added no database change."
+
