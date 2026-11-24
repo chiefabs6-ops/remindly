@@ -151,6 +151,9 @@ pub fn status(cfg: &UpdateSettings) -> UpdateStatus {
     }
     st.reason = match st.branch.as_deref() {
         None => Some("git could not read the source folder".into()),
+        Some("HEAD") => {
+            Some("the source folder is not on a branch; switch it to main to update".into())
+        }
         Some(b) if b != "main" => Some(format!(
             "the source folder is on branch {b}; switch it to main to update"
         )),

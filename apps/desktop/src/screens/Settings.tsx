@@ -315,7 +315,7 @@ function Updates() {
   const changes = st.behind === null ? null : st.behind === 0 ? "Up to date" : `${st.behind} new ${st.behind === 1 ? "change" : "changes"} on main`;
   const error = save.error ?? check.error ?? run.error;
   return (
-    <form onSubmit={(e) => { e.preventDefault(); save.mutate(repo, { onSuccess: () => { void status.refetch(); } }); }}>
+    <form onSubmit={(e) => { e.preventDefault(); save.mutate(repo, { onSuccess: () => { check.reset(); void status.refetch(); } }); }}>
       <p className="lead">Update Tether from its source folder on this PC. It gets the latest version from GitHub, builds it (about a minute) and reopens Tether.</p>
       <SRow label="Source folder" htmlFor="up-repo" help={st.problem ?? undefined}>
         <input id="up-repo" className="field w-56" value={repo} onChange={(e) => setRepo(e.target.value)} />

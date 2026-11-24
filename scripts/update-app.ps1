@@ -16,8 +16,9 @@ $repo = Split-Path -Parent $PSScriptRoot
 
 function Invoke-Git {
     $ErrorActionPreference = 'Continue'
-    $out = & git -C $repo @args 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed: $out" }
+    # stdout only: a git warning on stderr must not look like output (e.g. "changes not committed").
+    $out = & git -C $repo @args 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed (exit $LASTEXITCODE). Run it in the source folder to see why." }
     "$out".Trim()
 }
 
@@ -36,14 +37,14 @@ if ($Pull) {
     if (Invoke-Git status --porcelain --untracked-files=no) { throw 'The source folder has changes that are not committed. Commit or undo them, then update.' }
     $before = Invoke-Git rev-parse HEAD
     Invoke-Git pull --ff-only --quiet origin main | Out-Null
-    if (Invoke-Git diff --name-only $before HEAD -- package-lock.json) {
+    if (Invoke-Git diff --name-only "$before..HEAD" '--' package-lock.json) {
         Write-Host 'Dependencies changed: installing them...'
         Push-Location $repo
         try {
             $ErrorActionPreference = 'Continue'
-            npm install --no-audit --no-fund
+            npm ci --no-audit --no-fund
             $ErrorActionPreference = 'Stop'
-            if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit $LASTEXITCODE). The installed app was not changed." }
+            if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE). The installed app was not changed." }
         } finally { Pop-Location }
     }
 }
@@ -92,7 +93,8 @@ try {
     $why = $_.Exception.Message
     try { Copy-Item $backup $target -Force }
     catch { throw "Could not replace $target ($why), and could not put the old version back. Copy $backup over $target by hand." }
-    throw "Could not replace $target ($why). The old version was put back."
+    Start-Process -FilePath $target -WorkingDirectory (Split-Path $target)
+    throw "Could not replace $target ($why). The old version was put back and reopened."
 }
 
 Start-Process -FilePath $target -WorkingDirectory (Split-Path $target)
