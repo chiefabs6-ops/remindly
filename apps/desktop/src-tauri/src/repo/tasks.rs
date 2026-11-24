@@ -17,7 +17,12 @@ pub(crate) const COLS: &str = "t.id, t.parent_id, t.project_id, t.title, t.descr
     (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.deleted_at IS NULL
         AND s.status = 'completed'),
     (SELECT group_concat(g.name, char(31)) FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
-        WHERE tt.task_id = t.id)";
+        WHERE tt.task_id = t.id),
+    t.reminder_lead, t.reminder_repeat, t.claude_context,
+    (SELECT min(r.fire_at) FROM reminders r WHERE r.task_id = t.id AND r.kind = 'custom'
+        AND r.fired_at IS NULL AND r.dismissed_at IS NULL),
+    (SELECT min(r.fire_at) FROM reminders r WHERE r.task_id = t.id AND r.kind = 'snooze'
+        AND r.fired_at IS NULL AND r.dismissed_at IS NULL)";
 
 /// Default list order: dated first by date/time, then priority, manual order, age.
 pub(crate) const ORDER: &str = "ORDER BY (t.due_date IS NULL), t.due_date, (t.due_time IS NULL),
@@ -51,6 +56,13 @@ pub(crate) fn from_row(r: &Row) -> rusqlite::Result<Task> {
         subtask_count: r.get(23)?,
         subtask_done: r.get(24)?,
         tags: tags::split_joined(r.get(25)?),
+        reminder_lead: r.get(26)?,
+        reminder_repeat: r.get::<_, i64>(27)? != 0,
+        claude_context: r
+            .get::<_, Option<String>>(28)?
+            .and_then(|s| serde_json::from_str(&s).ok()),
+        next_reminder: r.get(29)?,
+        snoozed_until: r.get(30)?,
     })
 }
 
@@ -122,6 +134,58 @@ pub fn detail(conn: &Connection, id: &str) -> AppResult<TaskDetail> {
         history,
         links,
     })
+}
+
+/// Per-task reminder: `lead` None = app default, 0..=1440 minutes before the due time,
+/// -1 = the morning of the due day. `repeat` = once overdue, every working morning until done.
+pub fn set_reminder(
+    conn: &Connection,
+    id: &str,
+    lead: Option<i64>,
+    repeat: bool,
+    actor: Actor,
+) -> AppResult<Task> {
+    if let Some(l) = lead
+        && l != -1
+        && !(0..=1440).contains(&l)
+    {
+        return Err(AppError::invalid(
+            "reminder must be 0-1440 minutes before, or the morning of",
+        ));
+    }
+    let old = get(conn, id)?;
+    conn.execute(
+        "UPDATE tasks SET reminder_lead = ?2, reminder_repeat = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, lead, repeat as i64, now_utc()],
+    )?;
+    let show = |l: Option<i64>, r: bool| {
+        let base = match l {
+            None => "default".to_string(),
+            Some(-1) => "morning of".to_string(),
+            Some(m) => format!("{m} min before"),
+        };
+        if r {
+            format!("{base}, repeat until done")
+        } else {
+            base
+        }
+    };
+    let (before, after) = (
+        show(old.reminder_lead, old.reminder_repeat),
+        show(lead, repeat),
+    );
+    if before != after {
+        history::record(
+            conn,
+            id,
+            actor,
+            "update",
+            Some("reminder"),
+            Some(&before),
+            Some(&after),
+        )?;
+    }
+    get(conn, id)
 }
 
 /// Manual order from drag and drop: `ids` in their new order. The list still sorts by due date

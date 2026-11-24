@@ -2,20 +2,25 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Navigate, Route, Routes, useSearchParams } from "react-router";
 import { Layout, useTheme } from "./components/Layout";
 import { queryClient, useSettings } from "./lib/queries";
+import { InboxScreen } from "./screens/Inbox";
 import { NotesScreen } from "./screens/Notes";
+import { OverviewScreen } from "./screens/Overview";
 import { ProjectsScreen } from "./screens/Projects";
 import { ReviewScreen } from "./screens/Review";
 import { SettingsScreen } from "./screens/Settings";
 import { TasksScreen } from "./screens/Tasks";
 import { TaskPage } from "./screens/TaskPage";
-import { TodayScreen } from "./screens/Today";
 import { WelcomeScreen } from "./screens/Welcome";
 
-/** Approvals live on Today now; old links (notifications, Chrome) still work. */
-function InboxRedirect() {
+/** Old links to "/" (notification buttons, Chrome): approvals and suggestions now live on the Inbox page. */
+function HomeRoute() {
   const [p] = useSearchParams();
   const s = p.get("s");
-  return <Navigate to={s ? `/?s=${encodeURIComponent(s)}` : "/?approvals=1"} replace />;
+  if (s) return <Navigate to={`/inbox?s=${encodeURIComponent(s)}`} replace />;
+  const task = p.get("task");
+  if (task) return <Navigate to={`/task/${encodeURIComponent(task)}`} replace />;
+  if (p.get("approvals") === "1") return <Navigate to="/inbox" replace />;
+  return <OverviewScreen />;
 }
 
 function Shell() {
@@ -26,8 +31,8 @@ function Shell() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<TodayScreen />} />
-        <Route path="inbox" element={<InboxRedirect />} />
+        <Route index element={<HomeRoute />} />
+        <Route path="inbox" element={<InboxScreen />} />
         <Route path="tasks" element={<TasksScreen />} />
         <Route path="task/:id" element={<TaskPage />} />
         <Route path="projects" element={<ProjectsScreen />} />
@@ -35,7 +40,7 @@ function Shell() {
         <Route path="notes" element={<NotesScreen />} />
         <Route path="review" element={<ReviewScreen />} />
         <Route path="settings" element={<SettingsScreen />} />
-        <Route path="*" element={<TodayScreen />} />
+        <Route path="*" element={<HomeRoute />} />
       </Route>
     </Routes>
   );

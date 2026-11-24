@@ -1,5 +1,5 @@
 import type { DragEvent } from "react";
-import { Bot, CalendarClock, Copy, Ellipsis, Flag, Globe, GripVertical, Maximize2, StickyNote, Trash2 } from "lucide-react";
+import { Bell, Bot, CalendarClock, Copy, Ellipsis, Flag, Globe, GripVertical, Maximize2, Repeat, StickyNote, Trash2 } from "lucide-react";
 import { dayDiff, isoDate, PRIORITY_LABEL, relativeDayLabel, type Priority, type Project, type Task } from "@tether/core";
 import { api } from "../lib/api";
 import { dueLabel, dueTone, todayIso } from "../lib/format";
@@ -178,6 +178,32 @@ export interface ListRowProps {
   onDragEnd?: () => void;
 }
 
+/** Bell (with the time of a one-off reminder) or the repeat sign; nothing when the task uses the default. */
+function ReminderMark({ t }: { t: Task }) {
+  const late = !!t.dueDate && t.dueDate < todayIso();
+  if (t.reminderRepeat) {
+    return (
+      <span className={`trow-mk ${late ? "rem-late" : ""}`} title="Reminds every working morning until done">
+        <Repeat size={12} strokeWidth={1.6} aria-label="Reminds every working morning until done" />
+      </span>
+    );
+  }
+  if (t.nextReminder) {
+    const at = new Date(t.nextReminder);
+    const hm = at.toLocaleTimeString("en-IE", { hour: "2-digit", minute: "2-digit" });
+    return (
+      <span className="trow-mk" title={`Reminder ${at.toLocaleString("en-IE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}>
+        <Bell size={12} strokeWidth={1.6} aria-hidden /><span className="num">{hm}</span><span className="sr-only"> reminder</span>
+      </span>
+    );
+  }
+  if (t.reminderLead !== null) {
+    const what = t.reminderLead === -1 ? "the morning it’s due" : t.reminderLead === 0 ? "at the due time" : `${t.reminderLead} min before`;
+    return <span className="trow-mk" title={`Reminder ${what}`}><Bell size={12} strokeWidth={1.6} aria-label={`Reminder ${what}`} /></span>;
+  }
+  return null;
+}
+
 /** One row of the My Tasks list: grip, check, title, marks, project, due, priority; actions on hover. */
 export function ListRow(p: ListRowProps) {
   const { task: t, project } = p;
@@ -214,6 +240,7 @@ export function ListRow(p: ListRowProps) {
       <div className="trow-meta">
         <span className="trow-marks">
           {t.subtaskCount > 0 && <span className="trow-mk"><SubtaskRing done={t.subtaskDone} total={t.subtaskCount} /></span>}
+          {!done && <ReminderMark t={t} />}
           {t.source === "claude" && <span className="trow-mk"><ClaudeMark label="Suggested by Claude, approved by you" /></span>}
           {t.source === "chrome" && <span className="trow-mk" title="Captured in Chrome"><Globe size={12} strokeWidth={1.6} aria-label="Captured in Chrome" /></span>}
         </span>

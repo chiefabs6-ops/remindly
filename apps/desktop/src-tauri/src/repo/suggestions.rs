@@ -365,6 +365,68 @@ pub fn context_markdown(ctx: &Value) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// "Add to existing task": fold a pending task suggestion into a task that already exists instead
+/// of creating a duplicate. Its web link (if any) is attached and its text is added as an update.
+pub fn merge_into(conn: &Connection, id: &str, task_id: &str) -> AppResult<Approved> {
+    let s = get(conn, id)?;
+    if s.status != SuggestionStatus::Pending {
+        return Err(AppError::Conflict(format!(
+            "suggestion is already {}",
+            s.status.as_str()
+        )));
+    }
+    if s.kind != SuggestionKind::Task {
+        return Err(AppError::invalid(
+            "only a suggested task can be added to a task",
+        ));
+    }
+    let t: SuggestedTask = serde_json::from_value(s.payload.clone())
+        .map_err(|e| AppError::invalid(format!("invalid task payload: {e}")))?;
+    tasks::get(conn, task_id)?;
+    // Attach the page once: skip non-web links and links the task already has.
+    if let Some(url) = t
+        .source_url
+        .as_deref()
+        .and_then(|u| crate::repo::links::clean_url(u).ok())
+        && !crate::repo::links::list(conn, task_id)?
+            .iter()
+            .any(|l| l.url == url)
+    {
+        crate::repo::links::add(conn, task_id, &url, t.source_title.as_deref(), Actor::User)?;
+    }
+    let body = t
+        .source_selection
+        .as_deref()
+        .or(t.description.as_deref())
+        .map(str::trim)
+        .filter(|b| !b.is_empty());
+    let text: String = match body {
+        Some(b) => format!("Added from {}: {b}", s.origin.as_str()),
+        None => format!("Added from {}: {}", s.origin.as_str(), t.title),
+    }
+    .chars()
+    .take(2000)
+    .collect();
+    crate::repo::links::comment(conn, task_id, &text, Actor::User)?;
+    crate::repo::history::record(
+        conn,
+        task_id,
+        s.origin.actor(),
+        "merged_suggestion",
+        None,
+        None,
+        Some(&s.id),
+    )?;
+    conn.execute(
+        "UPDATE suggestions SET status = 'approved', resulting_id = ?2, decided_at = ?3 WHERE id = ?1",
+        params![id, task_id, now_utc()],
+    )?;
+    Ok(Approved {
+        kind: s.kind,
+        id: task_id.to_string(),
+    })
+}
+
 /// Approve a pending suggestion. `edited` (same shape as the payload) replaces the payload when
 /// the user changed fields in the review form.
 pub fn approve(conn: &Connection, id: &str, edited: Option<Value>) -> AppResult<Approved> {
@@ -397,7 +459,16 @@ pub fn approve(conn: &Connection, id: &str, edited: Option<Value>) -> AppResult<
             {
                 code_projects::set_project(conn, &cp.id, Some(pid))?;
             }
-            let ctx_md = s.context.as_ref().and_then(context_markdown);
+            // Claude's context is kept in its own column (shown as "Context from Claude"),
+            // so the user's notes stay theirs. Other origins keep the Markdown-in-notes form.
+            let claude_ctx = (s.origin == Origin::Claude)
+                .then(|| s.context.clone())
+                .flatten();
+            let ctx_md = if claude_ctx.is_some() {
+                None
+            } else {
+                s.context.as_ref().and_then(context_markdown)
+            };
             let notes = match (t.notes.clone(), ctx_md) {
                 (Some(n), Some(c)) => Some(format!("{n}\n\n{c}")),
                 (n, c) => n.or(c),
@@ -423,6 +494,12 @@ pub fn approve(conn: &Connection, id: &str, edited: Option<Value>) -> AppResult<
                 ..Default::default()
             };
             let task = tasks::create(conn, &input, &origin, actor)?;
+            if let Some(ctx) = &claude_ctx {
+                conn.execute(
+                    "UPDATE tasks SET claude_context = ?2 WHERE id = ?1",
+                    params![task.id, serde_json::to_string(ctx)?],
+                )?;
+            }
             crate::repo::history::record(
                 conn,
                 &task.id,
@@ -921,15 +998,32 @@ mod tests {
     }
 
     #[test]
-    fn context_renders_as_markdown_in_notes() {
+    fn claude_context_is_kept_apart_from_notes() {
         let db = db();
+        let ctx = json!({
+            "said": "I'll finish the profile form tomorrow",
+            "completed": ["Profile form"],
+            "remaining": ["Fix validation", "Test Irish translations"],
+            "resumeHint": "apps/web/src/profile.tsx"
+        });
         let s = NewSuggestion {
             origin: Origin::Claude,
-            context: Some(json!({
-                "completed": ["Profile form"],
-                "remaining": ["Fix validation", "Test Irish translations"],
-                "resumeHint": "apps/web/src/profile.tsx"
-            })),
+            context: Some(ctx.clone()),
+            ..chrome_task("Finish educator profile", None)
+        };
+        let s = db.write(|c| create(c, &s)).unwrap();
+        let r = db.write(|c| approve(c, &s.id, None)).unwrap();
+        let t = db.read(|c| tasks::get(c, &r.id)).unwrap();
+        assert_eq!(t.claude_context, Some(ctx));
+        assert!(t.notes.is_none(), "notes stay the user's own");
+        assert_eq!(t.source, Source::Claude);
+    }
+
+    #[test]
+    fn other_origins_still_render_context_as_markdown_in_notes() {
+        let db = db();
+        let s = NewSuggestion {
+            context: Some(json!({ "remaining": ["Fix validation"], "resumeHint": "profile.tsx" })),
             ..chrome_task("Finish educator profile", None)
         };
         let s = db.write(|c| create(c, &s)).unwrap();
@@ -937,10 +1031,88 @@ mod tests {
         let t = db.read(|c| tasks::get(c, &r.id)).unwrap();
         let notes = t.notes.unwrap();
         assert!(notes.contains("**Remaining**\n- Fix validation"), "{notes}");
-        assert!(
-            notes.contains("**Resume hint:** apps/web/src/profile.tsx"),
-            "{notes}"
+        assert!(t.claude_context.is_none());
+    }
+
+    #[test]
+    fn merge_adds_link_and_text_to_the_existing_task() {
+        let db = db();
+        let target = db
+            .write(|c| {
+                tasks::create(
+                    c,
+                    &TaskInput {
+                        title: "Send SEPI list to Niamh".into(),
+                        ..Default::default()
+                    },
+                    &TaskOrigin::default(),
+                    Actor::User,
+                )
+            })
+            .unwrap();
+        let s = db
+            .write(|c| create(c, &chrome_task("Follow up with Niamh", None)))
+            .unwrap();
+        let r = db.write(|c| merge_into(c, &s.id, &target.id)).unwrap();
+        assert_eq!(r.id, target.id);
+        let d = db.read(|c| tasks::detail(c, &target.id)).unwrap();
+        assert_eq!(d.links.len(), 1);
+        assert_eq!(d.links[0].url, "https://mail.example.com/thread/1");
+        assert!(d.history.iter().any(|h| {
+            h.action == "comment"
+                && h.new_value
+                    .as_deref()
+                    .is_some_and(|v| v.contains("SEPI teacher list"))
+        }));
+        assert_eq!(
+            db.read(|c| get(c, &s.id)).unwrap().status,
+            SuggestionStatus::Approved
         );
-        assert_eq!(t.source, Source::Claude);
+        // No second task was created, and it can't be merged twice.
+        let n: i64 = db
+            .read(|c| Ok(c.query_row("SELECT count(*) FROM tasks", [], |r| r.get(0))?))
+            .unwrap();
+        assert_eq!(n, 1);
+        assert!(matches!(
+            db.write(|c| merge_into(c, &s.id, &target.id)),
+            Err(AppError::Conflict(_))
+        ));
+    }
+
+    #[test]
+    fn merge_skips_non_web_and_repeated_links_and_needs_a_live_task() {
+        let db = db();
+        let target = db
+            .write(|c| {
+                tasks::create(
+                    c,
+                    &TaskInput {
+                        title: "Send SEPI list".into(),
+                        ..Default::default()
+                    },
+                    &TaskOrigin::default(),
+                    Actor::User,
+                )
+            })
+            .unwrap();
+        // The same page captured twice: one link only.
+        for key in ["a", "b"] {
+            let s = db
+                .write(|c| create(c, &chrome_task("Follow up with Niamh", Some(key))))
+                .unwrap();
+            db.write(|c| merge_into(c, &s.id, &target.id)).unwrap();
+        }
+        let d = db.read(|c| tasks::detail(c, &target.id)).unwrap();
+        assert_eq!(d.links.len(), 1);
+        assert!(d.history.iter().any(|h| h.action == "merged_suggestion"));
+        // A target that is gone is refused and the suggestion stays pending.
+        let s = db
+            .write(|c| create(c, &chrome_task("Another", Some("c"))))
+            .unwrap();
+        assert!(db.write(|c| merge_into(c, &s.id, "missing")).is_err());
+        assert_eq!(
+            db.read(|c| get(c, &s.id)).unwrap().status,
+            SuggestionStatus::Pending
+        );
     }
 }

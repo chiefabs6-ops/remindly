@@ -8,7 +8,10 @@ use crate::{
 const COLS: &str = "p.id, p.name, p.color, p.icon, p.description, p.sort_order, p.archived_at,
     p.created_at, p.updated_at,
     (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.deleted_at IS NULL
-        AND t.parent_id IS NULL AND t.status NOT IN ('completed','archived'))";
+        AND t.parent_id IS NULL AND t.status NOT IN ('completed','archived')),
+    (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.deleted_at IS NULL
+        AND t.parent_id IS NULL AND t.status = 'completed'
+        AND t.completed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'))";
 
 fn from_row(r: &Row) -> rusqlite::Result<Project> {
     Ok(Project {
@@ -22,6 +25,7 @@ fn from_row(r: &Row) -> rusqlite::Result<Project> {
         created_at: r.get(7)?,
         updated_at: r.get(8)?,
         open_tasks: r.get(9)?,
+        done_recent: r.get(10)?,
     })
 }
 

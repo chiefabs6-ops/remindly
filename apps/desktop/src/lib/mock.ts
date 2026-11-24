@@ -67,6 +67,11 @@ function task(p: Partial<Task> & { title: string }): Task {
     tags: [],
     subtaskCount: 0,
     subtaskDone: 0,
+    reminderLead: null,
+    reminderRepeat: false,
+    claudeContext: null,
+    nextReminder: null,
+    snoozedUntil: null,
     ...p,
   };
 }
@@ -84,6 +89,7 @@ function project(name: string, color: string, sortOrder: number): Project {
     createdAt: t,
     updatedAt: t,
     openTasks: 0,
+    doneRecent: 0,
   };
 }
 
@@ -155,6 +161,7 @@ export function sampleStore(): Store {
         projectName: "Educator platform",
       } satisfies SuggestedTask,
       context: {
+        said: "I'll wire the save tomorrow, the form itself is done.",
         completed: ["Form layout", "Field components"],
         remaining: ["Call the new endpoint", "Map 422 errors to fields", "Test with Irish locale"],
         why: "Old endpoint is removed on the 1st.",
@@ -359,7 +366,11 @@ function dashboard(): Dashboard {
 function projectsList(includeArchived: boolean): Project[] {
   return store.projects
     .filter((p) => includeArchived || !p.archivedAt)
-    .map((p) => ({ ...p, openTasks: store.tasks.filter((t) => open(t) && t.projectId === p.id).length }))
+    .map((p) => ({
+      ...p,
+      openTasks: store.tasks.filter((t) => open(t) && t.projectId === p.id).length,
+      doneRecent: store.tasks.filter((t) => live(t) && !t.parentId && t.projectId === p.id && t.status === "completed").length,
+    }))
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
@@ -571,6 +582,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
       sourceUrl: p.sourceUrl ?? null,
       sourceTitle: p.sourceTitle ?? null,
       sourceSelection: p.sourceSelection ?? null,
+      claudeContext: s.origin === "claude" ? (s.context ?? null) : null,
     });
     store.tasks.push(t);
     Object.assign(s, { status: "approved", resultingId: t.id, decidedAt: now() });
@@ -604,7 +616,37 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return value;
   },
   reminder_test: () => undefined,
-  reminder_snooze: () => undefined,
+  reminder_snooze: ({ id: tid, until }) => {
+    const t = getTask(tid);
+    if (t) t.snoozedUntil = String(until);
+  },
+  task_remind_at: ({ id: tid, at }) => {
+    const t = getTask(tid);
+    if (!t) return err("not_found", "task not found");
+    if (new Date(String(at)).getTime() <= Date.now()) return err("invalid", "pick a time in the future");
+    t.nextReminder = String(at);
+  },
+  task_set_reminder: ({ id: tid, lead, repeat }) => {
+    const t = getTask(tid);
+    if (!t) return err("not_found", "task not found");
+    const l = lead as number | null;
+    if (l !== null && l !== -1 && !(l >= 0 && l <= 1440)) return err("invalid", "reminder must be 0-1440 minutes before, or the morning of");
+    Object.assign(t, { reminderLead: l, reminderRepeat: !!repeat, updatedAt: now() });
+    logHistory(tid, "update", null, "reminder");
+    return withCounts(t);
+  },
+  suggestion_merge: ({ id: sid, taskId }) => {
+    const s = store.suggestions.find((x) => x.id === sid);
+    if (!s) return err("not_found", "suggestion not found");
+    if (s.status !== "pending") return err("conflict", `suggestion is already ${s.status}`);
+    if (!getTask(taskId)) return err("not_found", "task not found");
+    const p = s.payload as SuggestedTask;
+    if (p.sourceUrl && /^https?:\/\//i.test(p.sourceUrl))
+      (store.links ??= []).push({ id: id(), taskId, url: p.sourceUrl, title: p.sourceTitle ?? null, createdAt: now() });
+    logHistory(taskId, "comment", null, `Added from ${s.origin}: ${p.sourceSelection ?? p.description ?? p.title}`);
+    Object.assign(s, { status: "approved", resultingId: taskId, decidedAt: now() });
+    return { kind: s.kind, id: taskId };
+  },
   take_pending_route: () => null,
   autostart_get: () => !!store.settings.autostart,
   autostart_set: ({ enabled }) => {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { CalendarCheck, ClipboardCheck, FolderKanban, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
+import { FolderKanban, Inbox, LayoutDashboard, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
 import type { TaskStatus } from "@tether/core";
 import { api, onNavigate } from "../lib/api";
 import { isPopoutWindow } from "../lib/taskActions";
 import { toneDot } from "../lib/colors";
-import { useAction, useBackendSync, useDashboard, useProjects, useSettings, useTasks } from "../lib/queries";
+import { useInboxCounts } from "../lib/inboxCount";
+import { useAction, useBackendSync, useProjects, useSettings, useTasks } from "../lib/queries";
 import { ToastProvider } from "./ui/Toast";
 
 function NavItem({ to, icon, label, count, plainCount }: { to: string; icon: ReactNode; label: string; count?: number; plainCount?: number }) {
@@ -19,7 +20,7 @@ function NavItem({ to, icon, label, count, plainCount }: { to: string; icon: Rea
     >
       {icon}
       <span className="flex-1 truncate">{label}</span>
-      {!!count && <span className="num rounded-full bg-[var(--pill-today-bg)] px-1.5 text-xs text-[var(--pill-today-ink)]" aria-label={`${count} waiting for approval`}>{count}</span>}
+      {!!count && <span className="num rounded-full bg-[var(--pill-today-bg)] px-1.5 text-xs text-[var(--pill-today-ink)]" aria-label={`${count} waiting`}>{count}</span>}
       {!!plainCount && <span className="num text-xs text-faint" aria-label={`${plainCount} open`}>{plainCount}</span>}
     </NavLink>
   );
@@ -56,12 +57,13 @@ export function Layout() {
   useBackendSync();
   const theme = useTheme();
   const setTheme = useAction((t: string) => api.setSetting("theme", t));
-  const dash = useDashboard();
   const projects = useProjects();
   const navigate = useNavigate();
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
-  const pending = dash.data?.pending.reduce((n, p) => n + p.count, 0) ?? 0;
+  // Inbox badge: Chrome captures and other non-Claude suggestions, plus unsorted (inbox-status) tasks.
+  // Claude task suggestions are counted in My Tasks' tray instead.
+  const inboxCount = useInboxCounts().total;
   const openTasks = useTasks(OPEN_FILTER);
   const openCount = openTasks.data?.length;
 
@@ -87,12 +89,17 @@ export function Layout() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        document.getElementById("quick-add")?.focus();
+        const box = document.getElementById("quick-add");
+        if (box) box.focus();
+        else {
+          navigate("/tasks");
+          setTimeout(() => document.getElementById("quick-add")?.focus(), 50);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [navigate]);
 
   const icon = { size: 16, strokeWidth: 1.6 };
   const dark = document.documentElement.getAttribute("data-theme") === "dark";
@@ -103,10 +110,10 @@ export function Layout() {
         <div className="mb-3 flex h-[34px] items-center gap-2 px-2.5 font-semibold">
           <Mark /> Tether
         </div>
-        <NavItem to="/" icon={<CalendarCheck {...icon} />} label="Today" count={pending} />
+        <NavItem to="/" icon={<LayoutDashboard {...icon} />} label="Overview" />
+        <NavItem to="/inbox" icon={<Inbox {...icon} />} label="Inbox" count={inboxCount} />
         <NavItem to="/tasks" icon={<ListTodo {...icon} />} label="My Tasks" plainCount={openCount} />
         <NavItem to="/notes" icon={<NotebookPen {...icon} />} label="Notes" />
-        <NavItem to="/review" icon={<ClipboardCheck {...icon} />} label="Review" />
 
         <div className="mt-6 mb-1 flex items-center px-2.5">
           <p className="text-xs text-muted">Projects</p>
@@ -152,7 +159,8 @@ export function Layout() {
             placeholder="Search tasks and notes" className="field h-8 border-line pl-8 text-[13px]" />
           <kbd className="pointer-events-none absolute top-[7px] right-2.5 text-xs text-faint">Ctrl K</kbd>
         </form>
-        <button className="btn btn-primary ml-auto h-8 flex-none whitespace-nowrap" onClick={() => { navigate("/"); setTimeout(() => document.getElementById("quick-add")?.focus(), 50); }}>
+        <NavLink to="/settings" aria-label="Settings" title="Settings" className="btn btn-ghost ml-auto px-2 lg:hidden"><Settings size={16} /></NavLink>
+        <button className="btn btn-primary h-8 max-lg:ml-0 lg:ml-auto flex-none whitespace-nowrap" onClick={() => { navigate("/tasks"); setTimeout(() => document.getElementById("quick-add")?.focus(), 50); }}>
           <Plus size={14} /> New task
         </button>
       </div>
@@ -167,15 +175,17 @@ export function Layout() {
       {/* Phone/tablet: the sidebar folds into a bottom bar. */}
       <nav aria-label="Main" className="flex h-14 border-t border-line bg-surface lg:hidden">
         {[
-          ["/", "Today", <CalendarCheck {...icon} />],
-          ["/tasks", "My Tasks", <ListTodo {...icon} />],
-          ["/notes", "Notes", <NotebookPen {...icon} />],
-          ["/settings", "Settings", <Settings {...icon} />],
-        ].map(([to, label, ic]) => (
+          ["/", "Overview", <LayoutDashboard {...icon} />, 0],
+          ["/inbox", "Inbox", <Inbox {...icon} />, inboxCount],
+          ["/tasks", "My Tasks", <ListTodo {...icon} />, 0],
+          ["/notes", "Notes", <NotebookPen {...icon} />, 0],
+          ["/projects", "Projects", <FolderKanban {...icon} />, 0],
+        ].map(([to, label, ic, badge]) => (
           <NavLink key={to as string} to={to as string} end={to === "/"}
-            className={({ isActive }) => `flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] ${isActive ? "text-ink" : "text-muted"}`}>
+            className={({ isActive }) => `relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] ${isActive ? "text-ink" : "text-muted"}`}>
             {ic}
             {label as string}
+            {!!badge && <span className="num absolute top-1.5 left-1/2 ml-2 rounded-full bg-[var(--pill-today-bg)] px-1.5 text-[10px] leading-4 text-[var(--pill-today-ink)]" aria-label={`${badge} waiting`}>{badge as number}</span>}
           </NavLink>
         ))}
       </nav>

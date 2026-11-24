@@ -145,6 +145,8 @@ export const api = {
   deleteTask: (id: string) => call<void>("task_delete", { id }),
   restoreTask: (id: string) => call<Task>("task_restore", { id }),
   reorderTasks: (ids: string[]) => call<void>("task_reorder", { ids }),
+  setReminder: (id: string, lead: number | null, repeat: boolean) => call<Task>("task_set_reminder", { id, lead, repeat }),
+  mergeSuggestion: (id: string, taskId: string) => call<{ kind: string; id: string }>("suggestion_merge", { id, taskId }),
   addLink: (id: string, url: string, title?: string | null) =>
     call<TaskLink>("task_link_add", { id, url, title: title ?? null }),
   removeLink: (linkId: string) => call<void>("task_link_remove", { linkId }),
@@ -183,7 +185,8 @@ export const api = {
   reminders: () => call<ReminderSettings>("reminders_get"),
   setReminders: (value: ReminderSettings) => call<ReminderSettings>("reminders_set", { value }),
   testReminder: () => call<void>("reminder_test"),
-  remindAt: (id: string, until: string) => call<void>("reminder_snooze", { id, until }),
+  /** One-off reminder chosen on the task; the task's other reminders keep firing. */
+  remindAt: (id: string, at: string) => call<void>("task_remind_at", { id, at }),
   takePendingRoute: () => call<string | null>("take_pending_route"),
   autostart: () => call<boolean>("autostart_get"),
   setAutostart: (enabled: boolean) => call<boolean>("autostart_set", { enabled }),

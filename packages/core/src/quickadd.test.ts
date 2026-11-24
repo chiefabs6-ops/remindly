@@ -17,7 +17,7 @@ function project(id: string, name: string): Project {
     archivedAt: null,
     createdAt: "",
     updatedAt: "",
-    openTasks: 0,
+    openTasks: 0, doneRecent: 0,
   };
 }
 

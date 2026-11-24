@@ -230,32 +230,85 @@ pub fn due_notices(
     }
     let is_snoozed = |id: &str| snoozed.iter().any(|(t, _)| t == id);
 
-    for t in &open {
-        let (Some(d), Some(tm)) = (&t.due_date, &t.due_time) else {
+    // One-off "remind me at…" times set on the task. Unlike a snooze from a toast, they are
+    // extra reminders: the task's other reminders keep firing.
+    let custom: Vec<(String, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT task_id, fire_at FROM reminders WHERE kind = 'custom' AND fired_at IS NULL
+               AND dismissed_at IS NULL AND task_id IS NOT NULL",
+        )?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    for (task_id, fire_at) in &custom {
+        let Ok(at) = DateTime::parse_from_rfc3339(fire_at) else {
             continue;
         };
+        if at.with_timezone(&Local) <= to {
+            conn.execute(
+                "UPDATE reminders SET fired_at = ?3 WHERE kind = 'custom' AND task_id = ?1 AND fire_at = ?2",
+                params![task_id, fire_at, now_utc()],
+            )?;
+            if let Some(t) = open.iter().find(|t| &t.id == task_id) {
+                // Shown like a snooze ("reminder"); already marked fired above.
+                out.push((fire_at.clone(), Notice::Snooze { task: t.clone() }));
+            }
+        }
+    }
+
+    let work_start = ReminderSettings::time(&cfg.work_start, (9, 0));
+    for t in &open {
         if is_snoozed(&t.id) {
             continue;
         }
-        let (Ok(d), Ok(tm)) = (
-            NaiveDate::parse_from_str(d, "%Y-%m-%d"),
-            NaiveTime::parse_from_str(tm, "%H:%M"),
-        ) else {
+        let Some(d) = t
+            .due_date
+            .as_deref()
+            .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+        else {
             continue;
         };
-        let due = local_dt(d, tm);
-        let mut moments = vec![(due, Notice::Due { task: t.clone() })];
-        if cfg.due_soon_minutes > 0 {
-            moments.push((
-                due - Duration::minutes(cfg.due_soon_minutes),
-                Notice::DueSoon { task: t.clone() },
-            ));
+        let tm = t
+            .due_time
+            .as_deref()
+            .and_then(|x| NaiveTime::parse_from_str(x, "%H:%M").ok());
+        let mut moments = Vec::new();
+        if let Some(tm) = tm {
+            let due = local_dt(d, tm);
+            moments.push((due, Notice::Due { task: t.clone() }));
+            // The task's own lead time wins over the app default; -1 = the morning of the due day.
+            let early = match t.reminder_lead {
+                Some(-1) => Some(local_dt(d, work_start)).filter(|at| *at < due),
+                Some(m) if m > 0 => Some(due - Duration::minutes(m)),
+                Some(_) => None, // 0 = only at the due time
+                None => (cfg.due_soon_minutes > 0)
+                    .then(|| due - Duration::minutes(cfg.due_soon_minutes)),
+            };
+            if let Some(at) = early {
+                moments.push((at, Notice::DueSoon { task: t.clone() }));
+            }
+            if cfg.overdue_after_minutes > 0 {
+                moments.push((
+                    due + Duration::minutes(cfg.overdue_after_minutes),
+                    Notice::Overdue { task: t.clone() },
+                ));
+            }
+        } else if t.reminder_lead == Some(-1) {
+            // A task without a time can still be reminded on the morning it is due.
+            moments.push((local_dt(d, work_start), Notice::DueSoon { task: t.clone() }));
         }
-        if cfg.overdue_after_minutes > 0 {
-            moments.push((
-                due + Duration::minutes(cfg.overdue_after_minutes),
-                Notice::Overdue { task: t.clone() },
-            ));
+        // "Keep reminding me until it's done": every working morning after the due day.
+        if t.reminder_repeat {
+            let mut day = from.date_naive();
+            while day <= to.date_naive() {
+                if day > d && cfg.is_work_day(day) {
+                    moments.push((
+                        local_dt(day, work_start),
+                        Notice::Overdue { task: t.clone() },
+                    ));
+                }
+                day += Duration::days(1);
+            }
         }
         for (at, n) in moments {
             if in_window(at) {
@@ -412,7 +465,22 @@ pub fn due_notices(
     Ok(fresh)
 }
 
-/// Snooze a task's reminders until `until`.
+/// A one-off reminder chosen on the task ("Custom…"): replaces an earlier one-off, and does not
+/// silence the task's other reminders.
+pub fn remind_at(conn: &Connection, task_id: &str, at: DateTime<Local>) -> AppResult<()> {
+    tasks::get(conn, task_id)?;
+    conn.execute(
+        "UPDATE reminders SET dismissed_at = ?2 WHERE kind = 'custom' AND task_id = ?1 AND fired_at IS NULL",
+        params![task_id, now_utc()],
+    )?;
+    conn.execute(
+        "INSERT INTO reminders(id, task_id, kind, fire_at, created_at) VALUES (?1, ?2, 'custom', ?3, ?4)",
+        params![new_id(), task_id, utc_str(at), now_utc()],
+    )?;
+    Ok(())
+}
+
+/// Snooze a task's reminders until `until` (from a notification): the others wait until it fires.
 pub fn snooze(conn: &Connection, task_id: &str, until: DateTime<Local>) -> AppResult<()> {
     tasks::get(conn, task_id)?;
     conn.execute(
@@ -610,6 +678,192 @@ mod tests {
         assert_eq!(kinds(&run("13:59", "14:00")), ["due"]);
         assert!(run("13:59", "14:00").is_empty(), "never repeats");
         assert_eq!(kinds(&run("14:59", "15:00")), ["overdue"]);
+    }
+
+    fn quiet() -> ReminderSettings {
+        ReminderSettings {
+            briefing_enabled: false,
+            review_enabled: false,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn task_lead_time_overrides_the_default() {
+        let db = db();
+        let t = mk(&db, "Call venue", Some("2026-11-23"), Some("14:00"));
+        db.write(|c| tasks::set_reminder(c, &t.id, Some(60), false, Actor::User))
+            .unwrap();
+        let cfg = quiet();
+        let run = |a: &str, b: &str| {
+            db.write(|c| due_notices(c, &cfg, at("2026-11-23", a), at("2026-11-23", b)))
+                .unwrap()
+        };
+        assert!(
+            run("13:40", "13:50").is_empty(),
+            "default 15 min is replaced"
+        );
+        assert_eq!(kinds(&run("12:59", "13:00")), ["due_soon"]);
+        // 0 = only at the due time.
+        let u = mk(&db, "Pay bill", Some("2026-11-23"), Some("16:00"));
+        db.write(|c| tasks::set_reminder(c, &u.id, Some(0), false, Actor::User))
+            .unwrap();
+        assert!(run("15:40", "15:59").is_empty());
+        assert_eq!(kinds(&run("15:59", "16:00")), ["due"]);
+    }
+
+    #[test]
+    fn morning_of_works_with_and_without_a_time() {
+        let db = db();
+        let timed = mk(&db, "Board pack", Some("2026-11-23"), Some("14:00"));
+        let untimed = mk(&db, "Book NCT", Some("2026-11-23"), None);
+        for id in [&timed.id, &untimed.id] {
+            db.write(|c| tasks::set_reminder(c, id, Some(-1), false, Actor::User))
+                .unwrap();
+        }
+        let cfg = quiet();
+        let n = db
+            .write(|c| {
+                due_notices(
+                    c,
+                    &cfg,
+                    at("2026-11-23", "08:59"),
+                    at("2026-11-23", "09:00"),
+                )
+            })
+            .unwrap();
+        assert_eq!(kinds(&n), ["due_soon", "due_soon"]);
+    }
+
+    #[test]
+    fn repeat_reminds_each_working_morning_until_done() {
+        let db = db();
+        let t = mk(&db, "Send SEPI list", Some("2026-11-20"), None); // Friday
+        db.write(|c| tasks::set_reminder(c, &t.id, None, true, Actor::User))
+            .unwrap();
+        let cfg = quiet();
+        // Saturday and Sunday are not working days.
+        let weekend = db
+            .write(|c| {
+                due_notices(
+                    c,
+                    &cfg,
+                    at("2026-11-21", "00:00"),
+                    at("2026-11-22", "23:59"),
+                )
+            })
+            .unwrap();
+        assert!(weekend.is_empty());
+        let mon = db
+            .write(|c| {
+                due_notices(
+                    c,
+                    &cfg,
+                    at("2026-11-23", "08:59"),
+                    at("2026-11-23", "09:00"),
+                )
+            })
+            .unwrap();
+        assert_eq!(kinds(&mon), ["overdue"]);
+        let again = db
+            .write(|c| {
+                due_notices(
+                    c,
+                    &cfg,
+                    at("2026-11-23", "08:59"),
+                    at("2026-11-23", "09:00"),
+                )
+            })
+            .unwrap();
+        assert!(again.is_empty(), "once per morning");
+        db.write(|c| tasks::set_status(c, &t.id, TaskStatus::Completed, false, Actor::User))
+            .unwrap();
+        let tue = db
+            .write(|c| {
+                due_notices(
+                    c,
+                    &cfg,
+                    at("2026-11-24", "08:59"),
+                    at("2026-11-24", "09:00"),
+                )
+            })
+            .unwrap();
+        assert!(tue.is_empty(), "stops when done");
+        // Without repeat, nothing on the morning after.
+        let u = mk(&db, "No repeat", Some("2026-11-20"), None);
+        let _ = u;
+        let wed = db
+            .write(|c| {
+                due_notices(
+                    c,
+                    &cfg,
+                    at("2026-11-25", "08:59"),
+                    at("2026-11-25", "09:00"),
+                )
+            })
+            .unwrap();
+        assert!(wed.is_empty());
+    }
+
+    #[test]
+    fn a_one_off_reminder_adds_to_the_others_but_a_snooze_pauses_them() {
+        let db = db();
+        let t = mk(&db, "Board pack", Some("2026-11-23"), Some("14:00"));
+        db.write(|c| tasks::set_reminder(c, &t.id, Some(60), true, Actor::User))
+            .unwrap();
+        // One-off for Friday: today's 13:00 and 14:00 still fire.
+        db.write(|c| remind_at(c, &t.id, at("2026-11-27", "10:00")))
+            .unwrap();
+        let cfg = quiet();
+        let run = |d: &str, a: &str, b: &str| {
+            db.write(|c| due_notices(c, &cfg, at(d, a), at(d, b)))
+                .unwrap()
+        };
+        assert_eq!(kinds(&run("2026-11-23", "12:59", "13:00")), ["due_soon"]);
+        assert_eq!(kinds(&run("2026-11-23", "13:59", "14:00")), ["due"]);
+        // Repeat keeps going the next working morning too.
+        assert_eq!(kinds(&run("2026-11-24", "08:59", "09:00")), ["overdue"]);
+        // The one-off fires on Friday.
+        let fri = run("2026-11-27", "09:59", "10:00");
+        assert!(fri.iter().any(|n| matches!(n, Notice::Snooze { .. })));
+        let got = db.read(|c| tasks::get(c, &t.id)).unwrap();
+        assert!(
+            got.next_reminder.is_none(),
+            "fired one-offs are no longer pending"
+        );
+
+        // A snooze from a notification does pause the others until it fires.
+        let u = mk(&db, "Call venue", Some("2026-11-30"), Some("14:00"));
+        db.write(|c| snooze(c, &u.id, at("2026-11-30", "16:00")))
+            .unwrap();
+        assert!(
+            db.read(|c| tasks::get(c, &u.id))
+                .unwrap()
+                .snoozed_until
+                .is_some()
+        );
+        assert!(run("2026-11-30", "13:44", "14:00").is_empty());
+    }
+
+    #[test]
+    fn set_reminder_validates_and_records_history() {
+        let db = db();
+        let t = mk(&db, "X", Some("2026-11-23"), Some("14:00"));
+        assert!(
+            db.write(|c| tasks::set_reminder(c, &t.id, Some(-2), false, Actor::User))
+                .is_err()
+        );
+        assert!(
+            db.write(|c| tasks::set_reminder(c, &t.id, Some(1441), false, Actor::User))
+                .is_err()
+        );
+        let s = db
+            .write(|c| tasks::set_reminder(c, &t.id, Some(15), true, Actor::User))
+            .unwrap();
+        assert_eq!(s.reminder_lead, Some(15));
+        assert!(s.reminder_repeat);
+        let h = db.read(|c| crate::repo::history::list(c, &t.id)).unwrap();
+        assert_eq!(h[0].field.as_deref(), Some("reminder"));
     }
 
     #[test]

@@ -69,6 +69,16 @@ export interface Task {
   tags: string[];
   subtaskCount: number;
   subtaskDone: number;
+  /** null = the app default; minutes before the due time; -1 = the morning of the due day. */
+  reminderLead: number | null;
+  /** Once overdue, remind every working morning until done. */
+  reminderRepeat: boolean;
+  /** Context from an approved Claude suggestion: said, completed, remaining, why, resumeHint, … */
+  claudeContext: Record<string, unknown> | null;
+  /** One-off "remind me at…" time set on the task, not yet shown (RFC 3339 UTC). Extra to the others. */
+  nextReminder: string | null;
+  /** Snoozed from a notification until this time (RFC 3339 UTC); the task's other reminders wait until then. */
+  snoozedUntil: string | null;
 }
 
 export interface HistoryEntry {
@@ -136,6 +146,8 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   openTasks: number;
+  /** Top-level tasks completed in the last 30 days. */
+  doneRecent: number;
 }
 
 export interface ProjectInput {

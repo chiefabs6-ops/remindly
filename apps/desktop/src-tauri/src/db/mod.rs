@@ -12,6 +12,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_init.sql"),
     include_str!("migrations/002_meetings.sql"),
     include_str!("migrations/003_task_links.sql"),
+    include_str!("migrations/004_task_reminders.sql"),
 ];
 
 pub struct Db {
@@ -169,6 +170,23 @@ mod tests {
         .unwrap();
         migrate(&mut conn).unwrap();
         assert_eq!(schema_version(&conn).unwrap(), MIGRATIONS.len());
+        // 004: existing tasks get the default reminder and no Claude context.
+        let (lead, repeat, ctx): (Option<i64>, i64, Option<String>) = conn
+            .query_row(
+                "SELECT reminder_lead, reminder_repeat, claude_context FROM tasks WHERE id = 't1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!((lead, repeat, ctx), (None, 0, None));
+        assert_eq!(
+            crate::repo::tasks::get(&conn, "t1").unwrap().title,
+            "Old task"
+        );
+        assert!(
+            conn.execute("UPDATE tasks SET reminder_lead = 2000 WHERE id = 't1'", [])
+                .is_err()
+        );
         let title: String = conn
             .query_row("SELECT title FROM tasks WHERE id = 't1'", [], |r| r.get(0))
             .unwrap();

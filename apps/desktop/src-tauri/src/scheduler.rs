@@ -138,7 +138,7 @@ fn show_summary(app: &AppHandle, notices: &[Notice], missed: bool) {
         "Tether",
         &title,
         &names.join(" · "),
-        &[("Open Today", "open:today"), ("Review", "open:review")],
+        &[("Open Overview", "open:today"), ("Review", "open:review")],
     );
 }
 
@@ -200,7 +200,7 @@ fn show(app: &AppHandle, n: Notice, missed: bool) {
             if *suggestions > 0 {
                 parts.push(format!("{suggestions} suggestions to review"));
             }
-            let mut buttons = vec![("Open Today".to_string(), "open:today".to_string())];
+            let mut buttons = vec![("Open Overview".to_string(), "open:today".to_string())];
             if *suggestions > 0 {
                 buttons.push(("Review suggestions".into(), "open:inbox".into()));
             }
@@ -299,6 +299,6 @@ pub fn test_toast(app: &AppHandle) {
         "Tether",
         "Test reminder",
         "Buttons here snooze, move to tomorrow or finish a task.",
-        &[("Open Today", "open:today")],
+        &[("Open Overview", "open:today")],
     );
 }

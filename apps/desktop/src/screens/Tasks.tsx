@@ -388,7 +388,7 @@ export function TasksScreen() {
         )}
 
         <div className="tk-scroll">
-          {view !== "done" && <SuggestionTray projects={ps} />}
+          {view !== "done" && <SuggestionTray projects={ps} startOpen={params.get("tray") === "1"} />}
 
           {tasks.isError ? (
             <p className="px-2 py-4 text-negative">

@@ -148,3 +148,5 @@
 }
 
 .sg-edit { padding: 8px; border-top: 1px solid var(--border); }
+
+.trow-mk.rem-late { color: var(--warn); }

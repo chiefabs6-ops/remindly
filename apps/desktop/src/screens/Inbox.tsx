@@ -1,11 +1,17 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
-import { AlertTriangle, ExternalLink } from "lucide-react";
-import type { NoteInput, Project, SuggestedTask, Suggestion } from "@tether/core";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { AlertTriangle, CalendarDays, Check as CheckIcon, Copy, ExternalLink, Globe } from "lucide-react";
+import type { NoteInput, Project, SuggestedTask, Suggestion, Task } from "@tether/core";
 import { SourceIcon } from "../components/TaskRow";
+import { asInput, openExternal } from "../components/task/model";
+import { Check, ClaudeMark } from "../components/ui/Bits";
+import { Tabs } from "../components/ui/Controls";
+import { Popover, usePopover } from "../components/ui/Popover";
+import { useToast } from "../components/ui/Toast";
 import { api, errorMessage } from "../lib/api";
-import { ago, hostOf } from "../lib/format";
-import { useAction, useAiEnabled, useTask } from "../lib/queries";
+import { toneStyle } from "../lib/colors";
+import { ago, dueLabel, hostOf } from "../lib/format";
+import { useAction, useAiEnabled, useInvalidateAll, useProjects, useSuggestions, useTask, useTasks } from "../lib/queries";
 
 export const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
 
@@ -212,8 +218,9 @@ export function Review({ s, projects, onDone }: { s: Suggestion; projects: Proje
         <div className="mt-4 rounded-[8px] bg-raised p-3">
           <p className="label">Selected text</p>
           {p.sourceSelection && <blockquote className="mb-2">“{p.sourceSelection}”</blockquote>}
-          {p.sourceUrl && (
-            <a href={p.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-muted underline">
+          {p.sourceUrl && /^https?:\/\//i.test(p.sourceUrl) && (
+            <a href={p.sourceUrl} onClick={(e) => { e.preventDefault(); void openExternal(p.sourceUrl!); }} onAuxClick={(e) => e.preventDefault()}
+              className="inline-flex items-center gap-1 text-muted underline">
               {p.sourceTitle || hostOf(p.sourceUrl)} <ExternalLink size={12} />
             </a>
           )}
@@ -232,5 +239,257 @@ export function Review({ s, projects, onDone }: { s: Suggestion; projects: Proje
         {(approve.isError || dismiss.isError) && <span className="text-negative">{errorMessage(approve.error ?? dismiss.error)}</span>}
       </div>
     </article>
+  );
+}
+
+/* ===================== Inbox page (mockup E) ===================== */
+
+type Tab = "captures" | "claude" | "unsorted";
+
+const confidenceWord = (n: number) => (n >= 0.8 ? "High" : n >= 0.5 ? "Medium" : "Low");
+
+function ProjectChip({ s, projects }: { s: SuggestedTask; projects: Project[] }) {
+  const proj = s.projectId ? projects.find((x) => x.id === s.projectId) : projects.find((x) => x.name.toLowerCase() === s.projectName?.toLowerCase());
+  if (proj) return <span className="chip" style={toneStyle(proj.color)}>{proj.name}</span>;
+  if (s.projectName) return <span className="chip ib-chip-plain">{s.projectName}</span>;
+  return <span className="chip ib-chip-plain">No project</span>;
+}
+
+function CaptureCard({ s, projects, highlight }: { s: Suggestion; projects: Project[]; highlight: boolean }) {
+  const p = s.payload as SuggestedTask;
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const approve = useAction(() => api.approveSuggestion(s.id));
+  const dismiss = useAction(() => api.dismissSuggestion(s.id));
+  const merge = useAction((taskId: string) => api.mergeSuggestion(s.id, taskId));
+  const dup = useTask(s.possibleDuplicateOf);
+  const host = hostOf(p.sourceUrl ?? null);
+  const url = p.sourceUrl && /^https?:\/\//i.test(p.sourceUrl) ? p.sourceUrl : null;
+  const due = dueLabel({ dueDate: p.dueDate ?? null, dueTime: p.dueTime ?? null });
+  const dueConf = s.confidence?.dueDate;
+  const err = approve.error ?? dismiss.error ?? merge.error;
+  const title = p.title || (s.payload as NoteInput).title || "Untitled";
+
+  // No Undo here: the suggestion is used once approved, so undoing would lose the capture.
+  const add = () => approve.mutate(undefined, { onSuccess: () => toast(`Added “${title}” to My Tasks`) });
+
+  return (
+    <article className={`capc ${highlight ? "hl" : ""}`} data-sid={s.id} aria-label={`Capture: ${title}`}>
+      <div className="hd">
+        {s.origin === "chrome" ? <Globe size={13} strokeWidth={1.6} /> : <SourceIcon source={s.origin === "claude" ? "claude" : "ai"} />}
+        {s.origin === "chrome" ? `Captured in Chrome${host ? ` · ${host}` : ""}` : originLabel(s)}
+        <span className="r">{ago(s.createdAt)}</span>
+      </div>
+      {editing ? (
+        <div className="capc-edit">
+          <Review s={s} projects={projects} onDone={() => { setEditing(false); toast(`Handled “${title}”`); }} />
+          <button className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
+        </div>
+      ) : (
+        <>
+          {p.sourceSelection && <blockquote>{p.sourceSelection}</blockquote>}
+          <div className="prop-task">
+            <div className="lb">{s.kind === "note" ? "Suggested note" : "Suggested task"}</div>
+            <div className="tn">{title}</div>
+            {s.kind === "note" ? (
+              <p className="ib-body">{(s.payload as NoteInput).bodyMd}</p>
+            ) : (
+              <div className="meta">
+                <ProjectChip s={p} projects={projects} />
+                <span className="pill"><CalendarDays size={12} strokeWidth={1.6} /> {due ?? "No date"}</span>
+                {due && dueConf !== undefined && <small>date guessed · {confidenceWord(dueConf)} confidence</small>}
+              </div>
+            )}
+            {s.possibleDuplicateOf && (
+              <div className="dupe">
+                <Copy size={13} strokeWidth={1.6} />
+                <span>Looks like an open task{dup.data ? <>: “{dup.data.title}”</> : "."}</span>
+                <Link to={`/task/${s.possibleDuplicateOf}`}>Compare</Link>
+              </div>
+            )}
+          </div>
+          <div className="acts">
+            <button className="btn btn-sm btn-primary" disabled={approve.isPending || (s.kind === "task" && !p.title)} onClick={add}>
+              <CheckIcon size={13} strokeWidth={2} />{s.kind === "note" ? "Add note" : "Add task"}
+            </button>
+            {s.kind === "task" && <button className="btn btn-sm" onClick={() => setEditing(true)}>Edit first</button>}
+            {s.kind === "task" && s.possibleDuplicateOf && (
+              <button className="btn btn-sm" disabled={merge.isPending}
+                onClick={() => merge.mutate(s.possibleDuplicateOf!, { onSuccess: () => toast("Added to the existing task") })}>
+                Add to existing task
+              </button>
+            )}
+            {url && <button className="btn btn-sm btn-ghost" onClick={() => void openExternal(url)}><ExternalLink size={13} strokeWidth={1.6} />Open page</button>}
+            <button className="btn btn-sm btn-ghost ib-end" disabled={dismiss.isPending}
+              onClick={() => dismiss.mutate(undefined, { onSuccess: () => toast("Dismissed") })}>Dismiss</button>
+          </div>
+        </>
+      )}
+      {err && <p className="ib-err" role="alert">{errorMessage(err)}</p>}
+    </article>
+  );
+}
+
+/** A Claude note or change to an existing task, waiting for a decision. */
+function ClaudeCard({ s, highlight }: { s: Suggestion; highlight: boolean }) {
+  const toast = useToast();
+  const approve = useAction(() => api.approveSuggestion(s.id));
+  const dismiss = useAction(() => api.dismissSuggestion(s.id));
+  const n = s.payload as NoteInput;
+  return (
+    <div className={`capc ${highlight ? "hl" : ""} ${s.kind === "task_update" ? "flush" : ""}`} data-sid={s.id}>
+      {s.kind === "task_update" ? (
+        <UpdateReview s={s} onDone={() => toast("Done")} />
+      ) : (
+        <>
+          <div className="hd"><ClaudeMark />{originLabel(s)}<span className="r">{ago(s.createdAt)}</span></div>
+          <div className="prop-task">
+            <div className="lb">Suggested note</div>
+            <div className="tn">{n.title || "Untitled note"}</div>
+            {n.bodyMd && <p className="ib-body">{n.bodyMd}</p>}
+          </div>
+          <div className="acts">
+            <button className="btn btn-sm btn-primary" disabled={approve.isPending}
+              onClick={() => approve.mutate(undefined, { onSuccess: () => toast("Note added") })}>
+              <CheckIcon size={13} strokeWidth={2} />Add note
+            </button>
+            <button className="btn btn-sm btn-ghost ib-end" disabled={dismiss.isPending}
+              onClick={() => dismiss.mutate(undefined, { onSuccess: () => toast("Dismissed") })}>Dismiss</button>
+          </div>
+          {(approve.isError || dismiss.isError) && <p className="ib-err" role="alert">{errorMessage(approve.error ?? dismiss.error)}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** One quick-added task with no project: open it, give it a project, or finish it. */
+function UnsortedRow({ t, projects }: { t: Task; projects: Project[] }) {
+  const toast = useToast();
+  const invalidate = useInvalidateAll();
+  const navigate = useNavigate();
+  const menu = usePopover();
+  const run = async (fn: () => Promise<unknown>, msg: string) => {
+    try {
+      await fn();
+      await invalidate();
+      toast(msg);
+    } catch (e) {
+      toast(errorMessage(e));
+    }
+  };
+  const setProject = (p: Project) =>
+    run(async () => {
+      const d = await api.task(t.id);
+      await api.updateTask(t.id, { ...asInput(d), projectId: p.id, status: "not_started" });
+    }, `Moved to ${p.name}`);
+  return (
+    <div className="ib-row" role="listitem" data-id={t.id}>
+      <Check done={false} label={`Complete "${t.title}"`} onToggle={() => void run(() => api.setStatus(t.id, "completed"), `Completed “${t.title}”`)} />
+      <button type="button" className="ib-title" onClick={() => navigate(`/task/${t.id}`)}>{t.title}</button>
+      <button type="button" className="btn btn-sm" aria-label={`Set project for "${t.title}"`} onClick={(e) => menu.open(e.currentTarget)}>Set project</button>
+      {menu.anchor && (
+        <Popover anchor={menu.anchor} onClose={menu.close} label="Project" role="menu">
+          {projects.length === 0 && <p className="ib-none">No projects yet.</p>}
+          {projects.map((p) => (
+            <button key={p.id} type="button" role="menuitem" className="pop-item" onClick={() => { menu.close(); void setProject(p); }}>{p.name}</button>
+          ))}
+        </Popover>
+      )}
+    </div>
+  );
+}
+
+function Empty({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="tk-empty">
+      <div className="ok"><CheckIcon size={18} strokeWidth={2} /></div>
+      <h2>{title}</h2>
+      <p>{text}</p>
+    </div>
+  );
+}
+
+export function InboxScreen() {
+  const sugg = useSuggestions("pending");
+  const unsorted = useTasks({ statuses: ["inbox"], topLevelOnly: true });
+  const projects = useProjects();
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>("captures");
+  const [hl, setHl] = useState<string | null>(null);
+  const handled = useRef<string | null>(null);
+
+  const all = sugg.data ?? [];
+  const captures = all.filter((s) => s.origin !== "claude");
+  const fromClaude = all.filter((s) => s.origin === "claude" && s.kind !== "task");
+  const sortedTasks = unsorted.data ?? [];
+  const total = captures.length + fromClaude.length + sortedTasks.length;
+
+  // ?s=<id>: pick the tab, scroll to the card, highlight it. Claude task suggestions live in the My Tasks tray.
+  const sid = params.get("s");
+  useEffect(() => {
+    if (!sid || !sugg.data || handled.current === sid) return;
+    const s = sugg.data.find((x) => x.id === sid);
+    if (!s) return;
+    handled.current = sid;
+    if (s.origin === "claude" && s.kind === "task") {
+      navigate("/tasks?tray=1", { replace: true });
+      return;
+    }
+    setTab(s.origin === "claude" ? "claude" : "captures");
+    setHl(sid);
+  }, [sid, sugg.data, navigate]);
+  useEffect(() => {
+    if (!hl) return;
+    document.querySelector(`[data-sid="${hl}"]`)?.scrollIntoView?.({ block: "center" });
+  }, [hl, tab, sugg.data]);
+
+  const items = [
+    { key: "captures" as const, label: "Captures", count: captures.length },
+    ...(fromClaude.length > 0 || tab === "claude" ? [{ key: "claude" as const, label: "From Claude", count: fromClaude.length }] : []),
+    { key: "unsorted" as const, label: "Unsorted", count: sortedTasks.length },
+  ];
+  const error = sugg.error ?? unsorted.error;
+
+  return (
+    <div className="pg ib">
+      <header className="ib-h">
+        <h1>Inbox</h1>
+        <div className="summary">
+          {sugg.isSuccess && unsorted.isSuccess
+            ? total > 0 ? `${total} ${total === 1 ? "item needs" : "items need"} a decision. Nothing here is a task yet.` : "All clear."
+            : " "}
+        </div>
+      </header>
+      <Tabs label="Inbox" items={items} value={tab} onChange={setTab} />
+      {error ? (
+        <div className="tk-empty" role="alert">
+          <h2>Could not load the inbox</h2>
+          <p>{errorMessage(error)}</p>
+          <button className="btn" onClick={() => { void sugg.refetch(); void unsorted.refetch(); }}>Retry</button>
+        </div>
+      ) : !sugg.data || !unsorted.data ? (
+        <div className="ib-skel" aria-busy="true" />
+      ) : tab === "captures" ? (
+        captures.length ? captures.map((s) => s.kind === "task_update"
+          ? <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />
+          : <CaptureCard key={s.id} s={s} projects={projects.data ?? []} highlight={hl === s.id} />)
+          : <Empty title="Nothing to sort" text="Right-click any text in Chrome and choose “Create Task”." />
+      ) : tab === "claude" ? (
+        fromClaude.length ? fromClaude.map((s) => <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />)
+          : <Empty title="Nothing from Claude" text="Notes and changes Claude proposes show up here." />
+      ) : sortedTasks.length ? (
+        <div role="list" className="ib-list">
+          {sortedTasks.map((t) => <UnsortedRow key={t.id} t={t} projects={projects.data ?? []} />)}
+        </div>
+      ) : (
+        <Empty title="Nothing to sort" text="Things you jot down to sort later land here." />
+      )}
+      <div className="note-line">
+        <ClaudeMark />
+        <span>Claude’s new-task suggestions wait at the top of <Link to="/tasks?tray=1">My Tasks</Link>.</span>
+      </div>
+    </div>
   );
 }
