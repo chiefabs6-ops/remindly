@@ -383,10 +383,16 @@ pub fn merge_into(conn: &Connection, id: &str, task_id: &str) -> AppResult<Appro
     let t: SuggestedTask = serde_json::from_value(s.payload.clone())
         .map_err(|e| AppError::invalid(format!("invalid task payload: {e}")))?;
     tasks::get(conn, task_id)?;
-    if let Some(url) = t.source_url.as_deref()
-        && crate::repo::links::clean_url(url).is_ok()
+    // Attach the page once: skip non-web links and links the task already has.
+    if let Some(url) = t
+        .source_url
+        .as_deref()
+        .and_then(|u| crate::repo::links::clean_url(u).ok())
+        && !crate::repo::links::list(conn, task_id)?
+            .iter()
+            .any(|l| l.url == url)
     {
-        crate::repo::links::add(conn, task_id, url, t.source_title.as_deref(), Actor::User)?;
+        crate::repo::links::add(conn, task_id, &url, t.source_title.as_deref(), Actor::User)?;
     }
     let body = t
         .source_selection
@@ -402,6 +408,15 @@ pub fn merge_into(conn: &Connection, id: &str, task_id: &str) -> AppResult<Appro
     .take(2000)
     .collect();
     crate::repo::links::comment(conn, task_id, &text, Actor::User)?;
+    crate::repo::history::record(
+        conn,
+        task_id,
+        s.origin.actor(),
+        "merged_suggestion",
+        None,
+        None,
+        Some(&s.id),
+    )?;
     conn.execute(
         "UPDATE suggestions SET status = 'approved', resulting_id = ?2, decided_at = ?3 WHERE id = ?1",
         params![id, task_id, now_utc()],
@@ -1062,5 +1077,42 @@ mod tests {
             db.write(|c| merge_into(c, &s.id, &target.id)),
             Err(AppError::Conflict(_))
         ));
+    }
+
+    #[test]
+    fn merge_skips_non_web_and_repeated_links_and_needs_a_live_task() {
+        let db = db();
+        let target = db
+            .write(|c| {
+                tasks::create(
+                    c,
+                    &TaskInput {
+                        title: "Send SEPI list".into(),
+                        ..Default::default()
+                    },
+                    &TaskOrigin::default(),
+                    Actor::User,
+                )
+            })
+            .unwrap();
+        // The same page captured twice: one link only.
+        for key in ["a", "b"] {
+            let s = db
+                .write(|c| create(c, &chrome_task("Follow up with Niamh", Some(key))))
+                .unwrap();
+            db.write(|c| merge_into(c, &s.id, &target.id)).unwrap();
+        }
+        let d = db.read(|c| tasks::detail(c, &target.id)).unwrap();
+        assert_eq!(d.links.len(), 1);
+        assert!(d.history.iter().any(|h| h.action == "merged_suggestion"));
+        // A target that is gone is refused and the suggestion stays pending.
+        let s = db
+            .write(|c| create(c, &chrome_task("Another", Some("c"))))
+            .unwrap();
+        assert!(db.write(|c| merge_into(c, &s.id, "missing")).is_err());
+        assert_eq!(
+            db.read(|c| get(c, &s.id)).unwrap().status,
+            SuggestionStatus::Pending
+        );
     }
 }

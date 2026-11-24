@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, ChevronRight, ClipboardCheck, FileText, Sparkles, Video } from "lucide-react";
-import { addDays, isoTime, relativeDayLabel, type Priority, type Task, type TaskStatus } from "@tether/core";
+import { addDays, isoDate, isoTime, relativeDayLabel, type Priority, type Task, type TaskStatus } from "@tether/core";
 import { ClaudeMark } from "../components/ui/Bits";
 import { ListRow } from "../components/TaskRow";
 import { useToast } from "../components/ui/Toast";
@@ -10,47 +10,33 @@ import { api, errorMessage } from "../lib/api";
 import { toneDot } from "../lib/colors";
 import { longDate, todayIso } from "../lib/format";
 import { useInboxCounts } from "../lib/inboxCount";
+import { DEFAULT_RULES, dayMoments, type MomentKind, type ReminderRules } from "../lib/reminderPlan";
 import { completeTask, patchTask, rescheduleTask } from "../lib/taskActions";
 import { useAiEnabled, useDashboard, useInvalidateAll, useNotes, useProjects, useTasks } from "../lib/queries";
 
 /** Same filter as the sidebar count, so both share one cached query. */
 const OPEN_FILTER = { statuses: ["inbox", "not_started", "in_progress", "waiting"] as TaskStatus[], topLevelOnly: true };
 
-const toMin = (hm: string) => {
-  const [h, m] = hm.split(":").map(Number);
-  return h * 60 + m;
-};
-const fromMin = (n: number) => {
-  const c = Math.max(0, Math.min(23 * 60 + 59, n));
-  return `${String(Math.floor(c / 60)).padStart(2, "0")}:${String(c % 60).padStart(2, "0")}`;
-};
-const localDate = (iso: string) => {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
-const localTime = (iso: string) => isoTime(new Date(iso));
-
 interface Moment { key: string; time: string; title: string; note?: string }
 
-/** Reminder moments for today, from open tasks and the reminder settings. Sorted by time. */
-export function reminderMoments(tasks: Task[], today: string, workStart: string, dueSoonMinutes: number): Moment[] {
-  const out: Moment[] = [];
-  for (const t of tasks) {
-    if (t.dueDate === today) {
-      if (t.reminderLead === -1) out.push({ key: `${t.id}:lead`, time: workStart, title: t.title });
-      else if (t.dueTime) {
-        const lead = t.reminderLead ?? dueSoonMinutes;
-        out.push({ key: `${t.id}:lead`, time: fromMin(toMin(t.dueTime) - lead), title: t.title, note: `due ${t.dueTime}` });
-      }
-    }
-    if (t.nextReminder && localDate(t.nextReminder) === today) {
-      out.push({ key: `${t.id}:next`, time: localTime(t.nextReminder), title: t.title });
-    }
-    if (t.dueDate && t.dueDate < today && t.reminderRepeat) {
-      out.push({ key: `${t.id}:daily`, time: workStart, title: t.title, note: "daily" });
-    }
-  }
-  return out.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : a.title.localeCompare(b.title)));
+const NOTE: Partial<Record<MomentKind, string>> = { repeat: "daily", once: "one-off", snooze: "snoozed" };
+
+/**
+ * Today's reminders, planned with the scheduler's own rules (lib/reminderPlan): the early reminder
+ * (or the due time when there is none), one-offs, snoozes and "keep reminding" mornings. The
+ * follow-up after a missed due time is left out of this list.
+ */
+export function reminderMoments(tasks: Task[], today: string, rules: ReminderRules): Moment[] {
+  const all = dayMoments(tasks, rules, today);
+  const early = new Set(all.filter((m) => m.kind === "early").map((m) => m.taskId));
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  return all
+    .filter((m) => m.kind !== "followup" && !(m.kind === "due" && early.has(m.taskId)))
+    .map((m, i) => {
+      const due = byId.get(m.taskId)?.dueTime;
+      const note = NOTE[m.kind] ?? (m.kind === "early" && due ? `due ${due}` : m.kind === "due" ? "due" : undefined);
+      return { key: `${m.taskId}:${m.kind}:${i}`, time: isoTime(m.at), title: m.title, note };
+    });
 }
 
 function Card({ title, count, icon, link, children, label }: {
@@ -73,7 +59,7 @@ export function OverviewScreen() {
   const tasks = useTasks(OPEN_FILTER);
   const projects = useProjects();
   const notes = useNotes({ limit: 3 });
-  const settings = useQuery({ queryKey: ["tether", "reminders"], queryFn: api.reminders });
+  const settings = useQuery({ queryKey: ["tether", "reminder-settings"], queryFn: api.reminders });
   const aiOn = useAiEnabled();
   const inbox = useInboxCounts();
   const navigate = useNavigate();
@@ -122,7 +108,10 @@ export function OverviewScreen() {
     return { iso, wd: dt.toLocaleDateString("en-IE", { weekday: "short" }), day: dt.getDate(), items };
   });
 
-  const moments = reminderMoments(open, today, settings.data?.workStart ?? "09:00", settings.data?.dueSoonMinutes ?? 15);
+  const rules: ReminderRules = settings.data
+    ? { enabled: settings.data.enabled, dueSoonMinutes: settings.data.dueSoonMinutes, overdueAfterMinutes: settings.data.overdueAfterMinutes, workStart: settings.data.workStart, workDays: settings.data.workDays }
+    : DEFAULT_RULES;
+  const moments = reminderMoments(open, today, rules);
   const nowHm = isoTime(new Date());
   const firstNext = moments.findIndex((m) => m.time >= nowHm);
 
@@ -271,7 +260,7 @@ export function OverviewScreen() {
             <div className="card-b">
               <Link className="wl" to="/inbox">
                 <span className="big num">{inbox.total}</span>
-                <span className="tx">In your Inbox<small>{inbox.captures} {inbox.captures === 1 ? "capture" : "captures"} · {inbox.unsorted} unsorted</small></span>
+                <span className="tx">In your Inbox<small>{inbox.captures} to review · {inbox.unsorted} unsorted</small></span>
                 <ChevronRight size={14} />
               </Link>
               <Link className="wl" to="/tasks?tray=1">
@@ -308,7 +297,7 @@ export function OverviewScreen() {
                 : (notes.data ?? []).slice(0, 3).map((n) => (
                   <Link key={n.id} className="wl ov-note" to={`/notes?note=${n.id}`}>
                     {n.kind === "meeting" ? <Video size={16} /> : <FileText size={16} />}
-                    <span className="tx">{n.title}<small>{n.kind} · {relativeDayLabel(localDate(n.updatedAt), today)}</small></span>
+                    <span className="tx">{n.title}<small>{n.kind} · {relativeDayLabel(isoDate(new Date(n.updatedAt)), today)}</small></span>
                   </Link>
                 ))}
             </div>

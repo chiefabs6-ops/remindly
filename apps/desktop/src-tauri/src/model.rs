@@ -147,8 +147,10 @@ pub struct Task {
     pub reminder_repeat: bool,
     /// Context from an approved Claude suggestion (said / completed / remaining / why / resumeHint).
     pub claude_context: Option<serde_json::Value>,
-    /// Next one-off reminder ("remind me at…" / snooze) not yet shown, RFC 3339 UTC.
+    /// One-off "remind me at…" time set on the task, not yet shown (RFC 3339 UTC). Extra to the others.
     pub next_reminder: Option<String>,
+    /// Snoozed from a notification until this time (RFC 3339 UTC): the task's other reminders wait until then.
+    pub snoozed_until: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

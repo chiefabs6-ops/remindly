@@ -67,16 +67,15 @@ describe("Inbox", () => {
     expect(screen.getByRole("link", { name: "My Tasks" })).toHaveAttribute("href", "/tasks?tray=1");
   });
 
-  it("Add task approves the suggestion and Undo deletes the new task", async () => {
+  it("Add task approves the suggestion and creates the task (no Undo that would lose the capture)", async () => {
     const user = userEvent.setup();
     renderInbox();
     await user.click(await screen.findByRole("button", { name: "Add task" }));
-    expect(await screen.findByText("Added “Follow up about the updated teacher list”")).toBeInTheDocument();
+    expect(await screen.findByText("Added “Follow up about the updated teacher list” to My Tasks")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
     expect((await pending()).filter((s) => s.origin === "chrome")).toHaveLength(0);
-    await waitFor(() => expect(screen.getByText("Nothing to sort")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(async () =>
-      expect(await mockInvoke<{ title: string }[]>("tasks_list", { filter: { query: "Follow up about the updated" } })).toHaveLength(0),
+      expect(await mockInvoke<{ title: string }[]>("tasks_list", { filter: { query: "Follow up about the updated" } })).toHaveLength(1),
     );
   });
 

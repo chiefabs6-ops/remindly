@@ -101,6 +101,18 @@ pub fn task_restore(s: Db, id: String) -> AppResult<Task> {
     s.db.write(|c| tasks::restore(c, &id, Actor::User))
 }
 
+/// One-off reminder chosen on the task ("Custom…").
+#[tauri::command(async)]
+pub fn task_remind_at(s: Db, id: String, at: String) -> AppResult<()> {
+    let t = chrono::DateTime::parse_from_rfc3339(&at)
+        .map_err(|_| AppError::invalid("pick a date and time"))?
+        .with_timezone(&chrono::Local);
+    if t <= chrono::Local::now() {
+        return Err(AppError::invalid("pick a time in the future"));
+    }
+    s.db.write(|c| crate::reminders::remind_at(c, &id, t))
+}
+
 #[tauri::command(async)]
 pub fn task_set_reminder(s: Db, id: String, lead: Option<i64>, repeat: bool) -> AppResult<Task> {
     s.db.write(|c| tasks::set_reminder(c, &id, lead, repeat, Actor::User))

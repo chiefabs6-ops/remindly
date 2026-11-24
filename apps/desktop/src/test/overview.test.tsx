@@ -113,17 +113,39 @@ describe("Overview", () => {
   });
 });
 
-describe("reminderMoments", () => {
-  const base = { id: "x", title: "T", dueDate: null, dueTime: null, reminderLead: null, reminderRepeat: false, nextReminder: null } as unknown as Task;
-  it("covers lead, morning-of, repeat and snoozed reminders", () => {
-    const today = "2026-11-24";
+describe("reminderMoments (same rules as the scheduler)", () => {
+  const base = { id: "x", title: "T", dueDate: null, dueTime: null, reminderLead: null, reminderRepeat: false, nextReminder: null, snoozedUntil: null } as unknown as Task;
+  const rules = { enabled: true, dueSoonMinutes: 15, overdueAfterMinutes: 60, workStart: "09:00", workDays: [1, 2, 3, 4, 5] };
+  const line = (m: { time: string; title: string }[]) => m.map((x) => `${x.time} ${x.title}`);
+
+  it("covers lead, morning-of, repeat and one-off reminders", () => {
+    const today = "2026-11-24"; // Tuesday
+    const once = new Date(2026, 10, 24, 11, 5).toISOString();
     const m = reminderMoments([
       { ...base, id: "a", title: "A", dueDate: today, dueTime: "15:30" },
       { ...base, id: "b", title: "B", dueDate: today, dueTime: "15:30", reminderLead: 60 },
       { ...base, id: "c", title: "C", dueDate: today, reminderLead: -1 },
       { ...base, id: "d", title: "D", dueDate: "2026-11-20", reminderRepeat: true },
       { ...base, id: "e", title: "E", dueDate: today },
-    ], today, "09:00", 15);
-    expect(m.map((x) => `${x.time} ${x.title}`)).toEqual(["09:00 C", "09:00 D", "14:30 B", "15:15 A"]);
+      { ...base, id: "f", title: "F", dueDate: today, dueTime: "16:00", reminderLead: 0, nextReminder: once },
+    ], today, rules);
+    expect(line(m)).toEqual(["09:00 C", "09:00 D", "11:05 F", "14:30 B", "15:15 A", "16:00 F"]);
+  });
+
+  it("morning-of after the due time, weekends, midnight and switched-off reminders match the scheduler", () => {
+    // Due 08:00 with "morning of" at 09:00: no early reminder, only the due time.
+    expect(line(reminderMoments([{ ...base, title: "Early", dueDate: "2026-11-24", dueTime: "08:00", reminderLead: -1 }], "2026-11-24", rules)))
+      .toEqual(["08:00 Early"]);
+    // Repeat does not fire on a Saturday.
+    expect(reminderMoments([{ ...base, dueDate: "2026-11-20", reminderRepeat: true }], "2026-11-28", rules)).toEqual([]);
+    // Due tomorrow 00:30 with an hour's lead fires 23:30 today.
+    expect(line(reminderMoments([{ ...base, title: "Late", dueDate: "2026-11-25", dueTime: "00:30", reminderLead: 60 }], "2026-11-24", rules)))
+      .toEqual(["23:30 Late"]);
+    // Reminders off: nothing.
+    expect(reminderMoments([{ ...base, dueDate: "2026-11-24", dueTime: "15:00" }], "2026-11-24", { ...rules, enabled: false })).toEqual([]);
+    // Snoozed from a notification until 16:00: only the snooze.
+    const snoozed = new Date(2026, 10, 24, 16, 0).toISOString();
+    expect(line(reminderMoments([{ ...base, title: "S", dueDate: "2026-11-24", dueTime: "15:00", snoozedUntil: snoozed }], "2026-11-24", rules)))
+      .toEqual(["16:00 S"]);
   });
 });

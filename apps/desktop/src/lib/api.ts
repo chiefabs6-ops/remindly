@@ -185,7 +185,8 @@ export const api = {
   reminders: () => call<ReminderSettings>("reminders_get"),
   setReminders: (value: ReminderSettings) => call<ReminderSettings>("reminders_set", { value }),
   testReminder: () => call<void>("reminder_test"),
-  remindAt: (id: string, until: string) => call<void>("reminder_snooze", { id, until }),
+  /** One-off reminder chosen on the task; the task's other reminders keep firing. */
+  remindAt: (id: string, at: string) => call<void>("task_remind_at", { id, at }),
   takePendingRoute: () => call<string | null>("take_pending_route"),
   autostart: () => call<boolean>("autostart_get"),
   setAutostart: (enabled: boolean) => call<boolean>("autostart_set", { enabled }),

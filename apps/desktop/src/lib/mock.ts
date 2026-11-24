@@ -71,6 +71,7 @@ function task(p: Partial<Task> & { title: string }): Task {
     reminderRepeat: false,
     claudeContext: null,
     nextReminder: null,
+    snoozedUntil: null,
     ...p,
   };
 }
@@ -617,7 +618,13 @@ const handlers: Record<string, (a: Args) => unknown> = {
   reminder_test: () => undefined,
   reminder_snooze: ({ id: tid, until }) => {
     const t = getTask(tid);
-    if (t) t.nextReminder = String(until);
+    if (t) t.snoozedUntil = String(until);
+  },
+  task_remind_at: ({ id: tid, at }) => {
+    const t = getTask(tid);
+    if (!t) return err("not_found", "task not found");
+    if (new Date(String(at)).getTime() <= Date.now()) return err("invalid", "pick a time in the future");
+    t.nextReminder = String(at);
   },
   task_set_reminder: ({ id: tid, lead, repeat }) => {
     const t = getTask(tid);

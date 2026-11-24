@@ -225,6 +225,7 @@ pub fn run() {
             commands::task_restore,
             commands::task_reorder,
             commands::task_set_reminder,
+            commands::task_remind_at,
             commands::suggestion_merge,
             commands::task_link_add,
             commands::task_link_remove,

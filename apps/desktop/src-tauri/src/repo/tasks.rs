@@ -19,6 +19,8 @@ pub(crate) const COLS: &str = "t.id, t.parent_id, t.project_id, t.title, t.descr
     (SELECT group_concat(g.name, char(31)) FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id),
     t.reminder_lead, t.reminder_repeat, t.claude_context,
+    (SELECT min(r.fire_at) FROM reminders r WHERE r.task_id = t.id AND r.kind = 'custom'
+        AND r.fired_at IS NULL AND r.dismissed_at IS NULL),
     (SELECT min(r.fire_at) FROM reminders r WHERE r.task_id = t.id AND r.kind = 'snooze'
         AND r.fired_at IS NULL AND r.dismissed_at IS NULL)";
 
@@ -60,6 +62,7 @@ pub(crate) fn from_row(r: &Row) -> rusqlite::Result<Task> {
             .get::<_, Option<String>>(28)?
             .and_then(|s| serde_json::from_str(&s).ok()),
         next_reminder: r.get(29)?,
+        snoozed_until: r.get(30)?,
     })
 }
 

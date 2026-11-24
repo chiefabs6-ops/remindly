@@ -230,6 +230,32 @@ pub fn due_notices(
     }
     let is_snoozed = |id: &str| snoozed.iter().any(|(t, _)| t == id);
 
+    // One-off "remind me at…" times set on the task. Unlike a snooze from a toast, they are
+    // extra reminders: the task's other reminders keep firing.
+    let custom: Vec<(String, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT task_id, fire_at FROM reminders WHERE kind = 'custom' AND fired_at IS NULL
+               AND dismissed_at IS NULL AND task_id IS NOT NULL",
+        )?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    for (task_id, fire_at) in &custom {
+        let Ok(at) = DateTime::parse_from_rfc3339(fire_at) else {
+            continue;
+        };
+        if at.with_timezone(&Local) <= to {
+            conn.execute(
+                "UPDATE reminders SET fired_at = ?3 WHERE kind = 'custom' AND task_id = ?1 AND fire_at = ?2",
+                params![task_id, fire_at, now_utc()],
+            )?;
+            if let Some(t) = open.iter().find(|t| &t.id == task_id) {
+                // Shown like a snooze ("reminder"); already marked fired above.
+                out.push((fire_at.clone(), Notice::Snooze { task: t.clone() }));
+            }
+        }
+    }
+
     let work_start = ReminderSettings::time(&cfg.work_start, (9, 0));
     for t in &open {
         if is_snoozed(&t.id) {
@@ -440,6 +466,21 @@ pub fn due_notices(
 }
 
 /// Snooze a task's reminders until `until`.
+/// A one-off reminder chosen on the task ("Custom…"): replaces an earlier one-off, and does not
+/// silence the task's other reminders.
+pub fn remind_at(conn: &Connection, task_id: &str, at: DateTime<Local>) -> AppResult<()> {
+    tasks::get(conn, task_id)?;
+    conn.execute(
+        "UPDATE reminders SET dismissed_at = ?2 WHERE kind = 'custom' AND task_id = ?1 AND fired_at IS NULL",
+        params![task_id, now_utc()],
+    )?;
+    conn.execute(
+        "INSERT INTO reminders(id, task_id, kind, fire_at, created_at) VALUES (?1, ?2, 'custom', ?3, ?4)",
+        params![new_id(), task_id, utc_str(at), now_utc()],
+    )?;
+    Ok(())
+}
+
 pub fn snooze(conn: &Connection, task_id: &str, until: DateTime<Local>) -> AppResult<()> {
     tasks::get(conn, task_id)?;
     conn.execute(
@@ -762,6 +803,46 @@ mod tests {
             })
             .unwrap();
         assert!(wed.is_empty());
+    }
+
+    #[test]
+    fn a_one_off_reminder_adds_to_the_others_but_a_snooze_pauses_them() {
+        let db = db();
+        let t = mk(&db, "Board pack", Some("2026-11-23"), Some("14:00"));
+        db.write(|c| tasks::set_reminder(c, &t.id, Some(60), true, Actor::User))
+            .unwrap();
+        // One-off for Friday: today's 13:00 and 14:00 still fire.
+        db.write(|c| remind_at(c, &t.id, at("2026-11-27", "10:00")))
+            .unwrap();
+        let cfg = quiet();
+        let run = |d: &str, a: &str, b: &str| {
+            db.write(|c| due_notices(c, &cfg, at(d, a), at(d, b)))
+                .unwrap()
+        };
+        assert_eq!(kinds(&run("2026-11-23", "12:59", "13:00")), ["due_soon"]);
+        assert_eq!(kinds(&run("2026-11-23", "13:59", "14:00")), ["due"]);
+        // Repeat keeps going the next working morning too.
+        assert_eq!(kinds(&run("2026-11-24", "08:59", "09:00")), ["overdue"]);
+        // The one-off fires on Friday.
+        let fri = run("2026-11-27", "09:59", "10:00");
+        assert!(fri.iter().any(|n| matches!(n, Notice::Snooze { .. })));
+        let got = db.read(|c| tasks::get(c, &t.id)).unwrap();
+        assert!(
+            got.next_reminder.is_none(),
+            "fired one-offs are no longer pending"
+        );
+
+        // A snooze from a notification does pause the others until it fires.
+        let u = mk(&db, "Call venue", Some("2026-11-30"), Some("14:00"));
+        db.write(|c| snooze(c, &u.id, at("2026-11-30", "16:00")))
+            .unwrap();
+        assert!(
+            db.read(|c| tasks::get(c, &u.id))
+                .unwrap()
+                .snoozed_until
+                .is_some()
+        );
+        assert!(run("2026-11-30", "13:44", "14:00").is_empty());
     }
 
     #[test]

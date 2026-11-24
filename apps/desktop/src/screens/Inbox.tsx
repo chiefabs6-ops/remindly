@@ -218,8 +218,9 @@ export function Review({ s, projects, onDone }: { s: Suggestion; projects: Proje
         <div className="mt-4 rounded-[8px] bg-raised p-3">
           <p className="label">Selected text</p>
           {p.sourceSelection && <blockquote className="mb-2">“{p.sourceSelection}”</blockquote>}
-          {p.sourceUrl && (
-            <a href={p.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-muted underline">
+          {p.sourceUrl && /^https?:\/\//i.test(p.sourceUrl) && (
+            <a href={p.sourceUrl} onClick={(e) => { e.preventDefault(); void openExternal(p.sourceUrl!); }} onAuxClick={(e) => e.preventDefault()}
+              className="inline-flex items-center gap-1 text-muted underline">
               {p.sourceTitle || hostOf(p.sourceUrl)} <ExternalLink size={12} />
             </a>
           )}
@@ -257,7 +258,6 @@ function ProjectChip({ s, projects }: { s: SuggestedTask; projects: Project[] })
 function CaptureCard({ s, projects, highlight }: { s: Suggestion; projects: Project[]; highlight: boolean }) {
   const p = s.payload as SuggestedTask;
   const toast = useToast();
-  const invalidate = useInvalidateAll();
   const [editing, setEditing] = useState(false);
   const approve = useAction(() => api.approveSuggestion(s.id));
   const dismiss = useAction(() => api.dismissSuggestion(s.id));
@@ -270,14 +270,8 @@ function CaptureCard({ s, projects, highlight }: { s: Suggestion; projects: Proj
   const err = approve.error ?? dismiss.error ?? merge.error;
   const title = p.title || (s.payload as NoteInput).title || "Untitled";
 
-  const add = () =>
-    approve.mutate(undefined, {
-      onSuccess: (r) =>
-        toast(`Added “${title}”`, async () => {
-          await api.deleteTask(r.id);
-          await invalidate();
-        }),
-    });
+  // No Undo here: the suggestion is used once approved, so undoing would lose the capture.
+  const add = () => approve.mutate(undefined, { onSuccess: () => toast(`Added “${title}” to My Tasks`) });
 
   return (
     <article className={`capc ${highlight ? "hl" : ""}`} data-sid={s.id} aria-label={`Capture: ${title}`}>
@@ -478,7 +472,9 @@ export function InboxScreen() {
       ) : !sugg.data || !unsorted.data ? (
         <div className="ib-skel" aria-busy="true" />
       ) : tab === "captures" ? (
-        captures.length ? captures.map((s) => <CaptureCard key={s.id} s={s} projects={projects.data ?? []} highlight={hl === s.id} />)
+        captures.length ? captures.map((s) => s.kind === "task_update"
+          ? <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />
+          : <CaptureCard key={s.id} s={s} projects={projects.data ?? []} highlight={hl === s.id} />)
           : <Empty title="Nothing to sort" text="Right-click any text in Chrome and choose “Create Task”." />
       ) : tab === "claude" ? (
         fromClaude.length ? fromClaude.map((s) => <ClaudeCard key={s.id} s={s} highlight={hl === s.id} />)
@@ -488,7 +484,7 @@ export function InboxScreen() {
           {sortedTasks.map((t) => <UnsortedRow key={t.id} t={t} projects={projects.data ?? []} />)}
         </div>
       ) : (
-        <Empty title="Nothing to sort" text="Quick adds without a project land here." />
+        <Empty title="Nothing to sort" text="Things you jot down to sort later land here." />
       )}
       <div className="note-line">
         <ClaudeMark />

@@ -75,8 +75,10 @@ export interface Task {
   reminderRepeat: boolean;
   /** Context from an approved Claude suggestion: said, completed, remaining, why, resumeHint, … */
   claudeContext: Record<string, unknown> | null;
-  /** Next one-off reminder ("remind me at…" / snooze) not yet shown, RFC 3339 UTC. */
+  /** One-off "remind me at…" time set on the task, not yet shown (RFC 3339 UTC). Extra to the others. */
   nextReminder: string | null;
+  /** Snoozed from a notification until this time (RFC 3339 UTC); the task's other reminders wait until then. */
+  snoozedUntil: string | null;
 }
 
 export interface HistoryEntry {
