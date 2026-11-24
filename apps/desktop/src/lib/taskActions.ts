@@ -27,7 +27,15 @@ const isOpen = (s: TaskStatus) => s !== "completed" && s !== "archived";
  */
 export async function completeTask(id: string): Promise<() => Promise<void>> {
   const before = await api.task(id);
-  const reopen = before.subtasks.filter((s) => isOpen(s.status)).map((s) => ({ id: s.id, status: s.status }));
+  // The backend cascade closes every open descendant, so remember them at every level.
+  const reopen: { id: string; status: TaskStatus }[] = [];
+  const collect = async (subs: { id: string; status: TaskStatus; subtaskCount: number }[]) => {
+    for (const s of subs) {
+      if (isOpen(s.status)) reopen.push({ id: s.id, status: s.status });
+      if (s.subtaskCount > 0) await collect((await api.task(s.id)).subtasks);
+    }
+  };
+  await collect(before.subtasks);
   await api.setStatus(id, "completed", true);
   return async () => {
     await api.setStatus(id, isOpen(before.status) ? before.status : "not_started", false);
