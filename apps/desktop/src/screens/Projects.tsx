@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { Code2 } from "lucide-react";
 import type { Project } from "@tether/core";
 import { api, errorMessage } from "../lib/api";
 import { useAction, useProjects, useTasks } from "../lib/queries";
-import { TONES, toneStyle } from "../lib/colors";
+import { TONES, toneDot, toneOf, toneStyle } from "../lib/colors";
 import { dueTone } from "../lib/format";
 
 /** Project tones (pale tile + dark ink); identity only, never data. */
@@ -38,42 +39,77 @@ export function ProjectForm({ onDone, submitLabel = "Add project" }: { onDone?: 
   );
 }
 
-function Card({ p, overdue }: { p: Project; overdue: number }) {
+function ProjectLink({ id, archived, children }: { id: string; archived: boolean; children: React.ReactNode }) {
+  return archived ? <div className="pj-li">{children}</div> : <Link to={`/projects/${id}`} className="pj-li">{children}</Link>;
+}
+
+function Row({ p, overdue, linked }: { p: Project; overdue: number; linked: boolean }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(p.name);
-  const rename = useAction(() => api.updateProject(p.id, { name, color: p.color, description: p.description }));
+  // Keep "no colour" unless the user picks one; a rename must not save a colour they never chose.
+  const [color, setColor] = useState<string | null>(p.color);
+  const [description, setDescription] = useState(p.description ?? "");
+  const save = useAction(() => api.updateProject(p.id, { name, color, description: description.trim() || null }));
   const archive = useAction(() => api.archiveProject(p.id, !p.archivedAt));
   const remove = useAction(() => api.deleteProject(p.id));
+  const cancel = () => { setEditing(false); setName(p.name); setColor(p.color); setDescription(p.description ?? ""); };
   return (
-    <li className={`relative flex min-h-36 flex-col gap-3 rounded-[12px] p-4 ${p.archivedAt ? "opacity-70" : ""}`} style={toneStyle(p.color)}>
+    <li className={`pj-item ${p.archivedAt ? "archived" : ""}`}>
       {editing ? (
-        <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); rename.mutate(undefined, { onSuccess: () => setEditing(false) }); }}>
-          <label htmlFor={`r-${p.id}`} className="sr-only">Project name</label>
-          <input id={`r-${p.id}`} className="field h-8 min-w-0 flex-1 text-ink" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          <button className="btn h-8">Save</button>
-          <button type="button" className="btn btn-ghost h-8" onClick={() => { setEditing(false); setName(p.name); }}>Cancel</button>
+        <form className="pj-edit" aria-label={`Edit ${p.name}`} onSubmit={(e) => { e.preventDefault(); if (name.trim()) save.mutate(undefined, { onSuccess: () => setEditing(false) }); }}>
+          <div>
+            <label htmlFor={`r-${p.id}`} className="label">Project name</label>
+            <input id={`r-${p.id}`} className="field" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <label htmlFor={`d-${p.id}`} className="label">Description</label>
+            <input id={`d-${p.id}`} className="field" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this project is for" />
+          </div>
+          <fieldset>
+            <legend className="label">Colour</legend>
+            <div className="flex items-center gap-1.5">
+              {PROJECT_COLORS.map((c) => {
+                const on = toneOf(color) === toneOf(c);
+                return (
+                  <button key={c} type="button" aria-label={TONES.find((t) => t.ink === c)?.label} aria-pressed={on} onClick={() => setColor(c)}
+                    className={`flex size-7 items-center justify-center rounded-[6px] text-[12px] font-semibold ${on ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : ""}`} style={toneStyle(c)}>
+                    Aa
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+          <div className="flex gap-2">
+            <button className="btn btn-primary btn-sm" disabled={!name.trim() || save.isPending}>Save</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={cancel}>Cancel</button>
+          </div>
         </form>
       ) : (
-        <div className="flex items-start gap-2">
-          <Link to={`/projects/${p.id}`} className="min-w-0 flex-1 truncate text-[16px] font-semibold after:absolute after:inset-0 after:rounded-[12px] after:content-['']">{p.name}</Link>
-          {p.archivedAt && <span className="pill">Archived</span>}
-        </div>
+        <>
+          {/* Archived projects have no page; their row is not a link. */}
+          <ProjectLink id={p.id} archived={!!p.archivedAt}>
+            <span className="t">
+              <i className="dot" style={{ background: toneDot(p.color) }} aria-hidden="true" />
+              <span className="name">{p.name}</span>
+              {p.archivedAt && <span className="pill">Archived</span>}
+            </span>
+            <span className="m">
+              <span className="num">{p.openTasks} open</span>
+              <span className={`num ${overdue > 0 ? "od" : ""}`}>{overdue} overdue</span>
+              {linked && <span className="r"><Code2 size={13} strokeWidth={1.6} aria-label="Claude Code repo linked" /></span>}
+            </span>
+          </ProjectLink>
+          <div className="pj-acts">
+            <button className="btn btn-ghost btn-sm" aria-label={`Edit ${p.name}`} onClick={() => setEditing(true)}>Edit</button>
+            <button className="btn btn-ghost btn-sm" aria-label={`${p.archivedAt ? "Restore" : "Archive"} ${p.name}`} onClick={() => archive.mutate(undefined)}>{p.archivedAt ? "Restore" : "Archive"}</button>
+            <button className="btn btn-ghost btn-danger btn-sm" aria-label={`Delete ${p.name}`}
+              onClick={() => confirm(`Delete “${p.name}”? Its ${p.openTasks} open tasks are kept and become unassigned.`) && remove.mutate(undefined)}>
+              Delete
+            </button>
+          </div>
+        </>
       )}
-      <p className="num flex gap-3 text-[13px]">
-        <span>{p.openTasks} open</span>
-        <span className={overdue > 0 ? "font-medium text-negative" : "opacity-70"}>{overdue} overdue</span>
-      </p>
-      {!editing && (
-        <div className="relative z-10 mt-auto flex flex-wrap gap-1 -ml-2">
-          <button className="btn btn-ghost h-8" onClick={() => setEditing(true)}>Rename</button>
-          <button className="btn btn-ghost h-8" onClick={() => archive.mutate(undefined)}>{p.archivedAt ? "Restore" : "Archive"}</button>
-          <button className="btn btn-ghost btn-danger h-8"
-            onClick={() => confirm(`Delete “${p.name}”? Its ${p.openTasks} open tasks are kept and become unassigned.`) && remove.mutate(undefined)}>
-            Delete
-          </button>
-        </div>
-      )}
-      {(rename.isError || remove.isError) && <span className="text-negative">{errorMessage(rename.error ?? remove.error)}</span>}
+      {(save.isError || remove.isError || archive.isError) && <span className="pj-err">{errorMessage(save.error ?? remove.error ?? archive.error)}</span>}
     </li>
   );
 }
@@ -83,16 +119,16 @@ function CodeFolders({ projects }: { projects: Project[] }) {
   const link = useAction(({ id, projectId }: { id: string; projectId: string | null }) => api.linkCodeProject(id, projectId));
   const list = folders.data ?? [];
   return (
-    <section className="mt-8" aria-labelledby="cf-h">
-      <h2 id="cf-h" className="font-medium">Claude Code folders</h2>
-      <p className="mt-1 text-muted">Folders you have opened in Claude Code. Link each to a project so its suggestions land there.</p>
-      <ul className="mt-3 rounded-[8px] border border-line bg-surface px-2" aria-label="Claude Code folders">
-        {list.length === 0 && <li className="p-3 text-muted">None yet. They appear after Claude Code first talks to Tether from a repo.</li>}
+    <section className="pj-sec" aria-labelledby="cf-h">
+      <h2 id="cf-h">Claude Code folders</h2>
+      <p className="lead">Folders you have opened in Claude Code. Link each to a project so its suggestions land there.</p>
+      <ul className="pj-folders" aria-label="Claude Code folders">
+        {list.length === 0 && <li className="pj-none">None yet. They appear after Claude Code first talks to Tether from a repo.</li>}
         {list.map((f) => (
-          <li key={f.id} className="flex min-h-12 items-center gap-3 border-b border-rule px-2 last:border-0">
+          <li key={f.id} className="pj-folder">
             <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{f.name}</p>
-              <p className="truncate text-xs text-muted">{f.rootDir}</p>
+              <p className="name">{f.name}</p>
+              <p className="dir">{f.rootDir}</p>
             </div>
             <label htmlFor={`cf-${f.id}`} className="sr-only">Project for {f.name}</label>
             <select id={`cf-${f.id}`} className="field h-8 w-56 text-[13px]" value={f.projectId ?? ""}
@@ -103,28 +139,41 @@ function CodeFolders({ projects }: { projects: Project[] }) {
           </li>
         ))}
       </ul>
-      {link.isError && <p className="mt-2 text-negative">{errorMessage(link.error)}</p>}
+      {link.isError && <p className="pj-err">{errorMessage(link.error)}</p>}
     </section>
   );
 }
 
-export function ProjectsScreen() {
-  const projects = useProjects(true);
+/** Open tasks that are overdue, per project id. */
+export function useOverdueByProject() {
   const openTasks = useTasks({ statuses: ["inbox", "not_started", "in_progress", "waiting"], topLevelOnly: true });
-  const list = projects.data ?? [];
-  const active = list.filter((p) => !p.archivedAt);
   const overdue = new Map<string, number>();
   for (const t of openTasks.data ?? []) {
     if (t.projectId && dueTone(t) === "overdue") overdue.set(t.projectId, (overdue.get(t.projectId) ?? 0) + 1);
   }
+  return overdue;
+}
+
+/** Ids of projects that have a Claude Code repo linked. */
+export function useLinkedProjectIds() {
+  const folders = useQuery({ queryKey: ["tether", "code-projects"], queryFn: api.codeProjects });
+  return new Set((folders.data ?? []).map((f) => f.projectId).filter((x): x is string => !!x));
+}
+
+export function ProjectsScreen() {
+  const projects = useProjects(true);
+  const overdue = useOverdueByProject();
+  const linked = useLinkedProjectIds();
+  const list = projects.data ?? [];
+  const active = list.filter((p) => !p.archivedAt);
   return (
-    <div className="px-6 py-6 lg:px-8">
-      <h1 className="text-2xl font-semibold tracking-[-0.01em]">Projects</h1>
-      <p className="mt-1 text-muted"><span className="num">{active.length}</span> active · <span className="num">{list.length - active.length}</span> archived</p>
-      <div className="mt-5 rounded-[8px] border border-line bg-surface p-4"><ProjectForm /></div>
-      {list.length === 0 && <p className="mt-4 rounded-[8px] border border-line bg-surface p-3 text-muted">No projects yet. Add your first one above.</p>}
-      <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" aria-label="Projects">
-        {list.map((p) => <Card key={p.id} p={p} overdue={overdue.get(p.id) ?? 0} />)}
+    <div className="pj-manage">
+      <h1>Projects</h1>
+      <p className="sum"><span className="num">{active.length}</span> active · <span className="num">{list.length - active.length}</span> archived</p>
+      <div className="pj-new"><ProjectForm /></div>
+      {list.length === 0 && <p className="pj-none">No projects yet. Add your first one above.</p>}
+      <ul className="pj-list" aria-label="Projects">
+        {list.map((p) => <Row key={p.id} p={p} overdue={overdue.get(p.id) ?? 0} linked={linked.has(p.id)} />)}
       </ul>
       <CodeFolders projects={list} />
     </div>

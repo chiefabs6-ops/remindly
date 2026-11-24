@@ -1,3 +1,4 @@
+import { contextText } from "./format.js";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,6 +6,33 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { inertTitle, isGenericTitle } from "./generic.js";
 import { chooseDir, repoNameFromRemote, rootFromUri, safeRemote } from "./project.js";
+
+describe("task handover text", () => {
+  it("shows what was said, done, left and where to resume, in that order", () => {
+    const out = contextText({
+      resumeHint: "src/profile/EditForm.tsx",
+      remaining: ["Photo upload", "Form tests"],
+      said: "I'll finish the profile form tomorrow",
+      completed: ["Validation"],
+      branch: "feat/profile-form",
+    });
+    expect(out).toBe(
+      [
+        "\nHandover from Claude:",
+        'You said: "I\'ll finish the profile form tomorrow"',
+        "Done:\n- Validation",
+        "Left to do:\n- Photo upload\n- Form tests",
+        "Pick up at: src/profile/EditForm.tsx",
+        "Branch: feat/profile-form",
+      ].join("\n"),
+    );
+  });
+
+  it("is empty when there is no handover", () => {
+    expect(contextText(null)).toBe("");
+    expect(contextText({ remaining: [], why: "  " })).toBe("");
+  });
+});
 
 describe("titles", () => {
   it.each([

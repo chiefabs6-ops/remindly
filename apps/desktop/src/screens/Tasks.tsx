@@ -40,7 +40,7 @@ const EMPTY: Record<View, [string, string]> = {
   done: ["Nothing completed yet", "Finished tasks stay here for 30 days."],
 };
 
-/** My Tasks: every open task, or one project's tasks when mounted at /projects/:projectId. */
+/** My Tasks: every open task; ?project=<id> (or a :projectId route param) narrows it to one project. */
 export function TasksScreen() {
   const { projectId } = useParams();
   const [params, setParams] = useSearchParams();

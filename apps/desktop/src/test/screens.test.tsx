@@ -162,6 +162,39 @@ describe("Settings sections", () => {
     expect(await screen.findByText(/Database check: healthy/)).toBeInTheDocument();
     expect(window.location.hash).toContain("section=backups");
   });
+
+  it("the Calendar section says Coming later and Connect is off", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/settings";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Calendar" }));
+    expect(await screen.findByRole("heading", { name: "Calendar" })).toBeInTheDocument();
+    expect(screen.getByText("Coming later")).toBeInTheDocument();
+    expect(screen.getByText(/Not available yet/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+    expect(screen.queryByText(/Database check/)).not.toBeInTheDocument();
+  });
+
+  it("the theme still saves", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/settings";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Dark" }));
+    await waitFor(async () => expect((await mockInvoke<Record<string, unknown>>("settings_get_all")).theme).toBe("dark"));
+    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("reminder settings still save", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/settings?section=reminders";
+    render(<App />);
+    const mins = await screen.findByLabelText("Warn before a timed task (minutes)");
+    await user.clear(mins);
+    await user.type(mins, "30");
+    await user.click(screen.getByRole("button", { name: "Save reminders" }));
+    await waitFor(async () => expect((await mockInvoke<{ dueSoonMinutes: number }>("reminders_get")).dueSoonMinutes).toBe(30));
+    expect(screen.getByRole("switch", { name: "Morning briefing" })).toBeChecked();
+  });
 });
 
 describe("Projects", () => {

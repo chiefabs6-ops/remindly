@@ -6,6 +6,10 @@ import "./styles/tasks.css";
 import "./styles/task-detail.css";
 import "./styles/inbox.css";
 import "./styles/overview.css";
+import "./styles/calendar.css";
+import "./styles/notes.css";
+import "./styles/projects.css";
+import "./styles/settings.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
