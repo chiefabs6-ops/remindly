@@ -1,17 +1,74 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus } from "lucide-react";
-import type { Note, NoteKind, Project } from "@tether/core";
+import type { Meeting, Note, NoteKind, Project } from "@tether/core";
 import { api, errorMessage } from "../lib/api";
 import { ago } from "../lib/format";
-import { useAction, useNotes, useProjects } from "../lib/queries";
+import { useAction, useMeetingForNote, useNotes, useProjects } from "../lib/queries";
 
 const KINDS: Record<NoteKind, string> = { general: "General", meeting: "Meeting", idea: "Idea", research: "Research", work: "Work" };
 
+function meetingFacts(m: Meeting): string {
+  const mins = Math.max(1, Math.round((new Date(m.endedAt).getTime() - new Date(m.startedAt).getTime()) / 60_000));
+  const date = new Date(m.startedAt).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
+  const dur = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+  return `${date} · ${dur} · ${m.segmentCount} lines`;
+}
+
+/** Slim row above a meeting note: summary status, facts, and the optional Claude Code route. */
+function MeetingBar({ meeting }: { meeting: Meeting }) {
+  const [copied, setCopied] = useState(false);
+  const retry = useAction(() => api.meetingResummarise(meeting.id));
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`/tether:meeting ${meeting.id}`);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  const st = meeting.summaryStatus;
+  return (
+    <div className="rounded-[8px] border border-line bg-raised px-3 py-2 text-[13px]" aria-label="Meeting summary">
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {(st === "pending" || st === "running") && <span>Summary on the way — the local AI is working on it</span>}
+        {st === "failed" && (
+          <>
+            <span>Summary failed: {meeting.summaryError ?? "unknown error"}</span>
+            <button type="button" className="btn btn-ghost h-7 px-2" disabled={retry.isPending} onClick={() => retry.mutate(undefined)}>
+              Try again
+            </button>
+          </>
+        )}
+        {st === "off" && <span>Local AI is off — no summary yet</span>}
+        {st === "done" && (
+          <span>
+            Summarised · <Link className="underline" to="/?approvals=1">{meeting.suggestionCount} action items in approvals</Link>
+          </span>
+        )}
+        <button type="button" className="btn h-7 px-2" onClick={copy}>Summarise with Claude Code</button>
+      </p>
+      {copied && <p className="mt-1 text-muted">Copied — paste it in Claude Code. This sends the transcript to Claude.</p>}
+      <p className="mt-1 text-xs text-muted">{meetingFacts(meeting)}</p>
+    </div>
+  );
+}
+
 function Editor({ note, projects, onDeleted }: { note: Note; projects: Project[]; onDeleted: () => void }) {
   const navigate = useNavigate();
+  const meeting = useMeetingForNote(note.kind === "meeting" ? note.id : null);
   const [f, setF] = useState({ title: note.title, bodyMd: note.bodyMd, kind: note.kind, projectId: note.projectId ?? "" });
-  useEffect(() => setF({ title: note.title, bodyMd: note.bodyMd, kind: note.kind, projectId: note.projectId ?? "" }), [note]);
+  // Follow outside changes (e.g. a meeting summary arriving) only while there are no unsaved edits.
+  const synced = useRef(note);
+  useEffect(() => {
+    const old = synced.current;
+    synced.current = note;
+    setF((cur) =>
+      cur.title === old.title && cur.bodyMd === old.bodyMd && cur.kind === old.kind && (cur.projectId || null) === old.projectId
+        ? { title: note.title, bodyMd: note.bodyMd, kind: note.kind, projectId: note.projectId ?? "" }
+        : cur,
+    );
+  }, [note]);
   const save = useAction(() => api.updateNote(note.id, { ...f, projectId: f.projectId || null, tags: note.tags, taskId: note.taskId }));
   const convert = useAction(() => api.convertNote(note.id));
   const remove = useAction(() => api.deleteNote(note.id));
@@ -23,6 +80,7 @@ function Editor({ note, projects, onDeleted }: { note: Note; projects: Project[]
     <form className="flex h-full flex-col xl:flex-row"
       onSubmit={(e) => { e.preventDefault(); save.mutate(undefined); }}>
       <div className="flex min-w-0 flex-1 flex-col gap-3 px-8 py-6">
+        {meeting.data && <MeetingBar meeting={meeting.data} />}
         <label htmlFor="n-title" className="sr-only">Note title</label>
         <input id="n-title" className="bg-transparent text-xl font-semibold outline-none" placeholder="Untitled note" value={f.title} onChange={set("title")} />
         <label htmlFor="n-body" className="sr-only">Note</label>

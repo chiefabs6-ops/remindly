@@ -8,7 +8,10 @@ use crate::error::{AppError, AppResult};
 
 /// Ordered migrations. Index + 1 is the schema version stored in `PRAGMA user_version`.
 /// Never edit a shipped migration; append a new one.
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/001_init.sql"),
+    include_str!("migrations/002_meetings.sql"),
+];
 
 pub struct Db {
     conn: Mutex<Connection>,

@@ -34600,6 +34600,16 @@ async function call(path, init = {}) {
   if (!res.ok) throw new TetherError(res.status, data?.message ?? `Tether returned ${res.status}`);
   return data;
 }
+function getMeeting(id) {
+  return call(`/v1/meetings/${encodeURIComponent(id)}`, { timeoutMs: 15e3 });
+}
+function saveMeetingSummary(id, body) {
+  return call(`/v1/meetings/${encodeURIComponent(id)}/summary`, {
+    method: "POST",
+    body,
+    timeoutMs: 15e3
+  });
+}
 function dedupeKey(parts) {
   return "claude:" + createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 32);
 }
@@ -34913,6 +34923,67 @@ ${n.bodyMd.slice(0, 1200)}`).join("\n\n"));
           dedupeKey: dedupeKey(["note", title, body])
         });
         return text(outcome(r, `the note "${title}"`));
+      } catch (e) {
+        return failure2(e);
+      }
+    }
+  );
+  server.registerTool(
+    "tether_get_meeting",
+    {
+      title: "Tether: get a meeting transcript",
+      description: 'Read one Google Meet meeting captured by Tether: title, times, summary status and the full transcript text (lines like "[10:02] You: ..."). "You" in the transcript is the user. Use it to write a summary, then call tether_save_meeting_summary.',
+      inputSchema: external_exports.object({ meetingId: external_exports.string().min(1).max(64) }),
+      annotations: { readOnlyHint: true, openWorldHint: false }
+    },
+    async ({ meetingId }) => {
+      try {
+        const m = await getMeeting(meetingId);
+        return text(
+          [
+            `Meeting: ${m.title || "Untitled"} [${m.id}]`,
+            `Started: ${m.startedAt}`,
+            `Ended: ${m.endedAt}`,
+            `Summary status: ${m.summaryStatus}`,
+            "",
+            "Transcript:",
+            m.transcript
+          ].join("\n")
+        );
+      } catch (e) {
+        return failure2(e);
+      }
+    }
+  );
+  server.registerTool(
+    "tether_save_meeting_summary",
+    {
+      title: "Tether: save a meeting summary",
+      description: `Save a summary and decisions into the meeting's note in Tether. actionItems must be ONLY the user's own: things said by "You" in the transcript, or asked of the user by someone else. Never list other people's tasks. Each action item arrives in Tether as a suggestion that waits for the user's approval; it does not become a task until approved.`,
+      inputSchema: external_exports.object({
+        meetingId: external_exports.string().min(1).max(64),
+        summary: external_exports.string().min(1).max(4e3).describe("3-6 sentences"),
+        decisions: external_exports.array(external_exports.string().min(1).max(500)).max(20),
+        actionItems: external_exports.array(
+          external_exports.object({
+            title: external_exports.string().min(1).max(200).describe("Short imperative action for the user"),
+            dueDate: DATE.optional().describe("Only if a date was said; resolve relative dates against the meeting date"),
+            quote: external_exports.string().max(500).optional().describe("The transcript line this came from")
+          })
+        ).max(30)
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async ({ meetingId, summary, decisions, actionItems }) => {
+      try {
+        const r = await saveMeetingSummary(meetingId, {
+          summary,
+          decisions,
+          actionItems: actionItems.map((a) => ({ title: a.title.trim(), dueDate: a.dueDate ?? null, quote: a.quote ?? null }))
+        });
+        return text(
+          `Saved the summary to the meeting note. ${r.suggestions} action item suggestion${r.suggestions === 1 ? " is" : "s are"} waiting for the user's approval in Tether.`
+        );
       } catch (e) {
         return failure2(e);
       }

@@ -139,6 +139,16 @@ fn chat<T: DeserializeOwned>(
     user: &str,
     schema: Value,
 ) -> AppResult<(T, f64)> {
+    chat_with(cfg, system, user, schema, Duration::from_secs(120))
+}
+
+fn chat_with<T: DeserializeOwned>(
+    cfg: &AiSettings,
+    system: &str,
+    user: &str,
+    schema: Value,
+    timeout: Duration,
+) -> AppResult<(T, f64)> {
     if !cfg.enabled {
         return Err(AppError::invalid(
             "Local AI is off. Turn it on in Settings.",
@@ -158,7 +168,7 @@ fn chat<T: DeserializeOwned>(
         ]
     });
     let started = Instant::now();
-    let mut res = agent(Duration::from_secs(120))
+    let mut res = agent(timeout)
         .post(format!("{}/api/chat", base(cfg)))
         .send_json(&body)
         .map_err(|e| {
@@ -300,6 +310,115 @@ pub fn break_down(cfg: &AiSettings, title: &str, details: &str) -> AppResult<(Ve
     Ok((steps, tps))
 }
 
+/// About 2,000 tokens of transcript per call, so the prompt and the answer fit in 4,096.
+const MEETING_CHUNK_CHARS: usize = 7000;
+
+fn chunks(lines: &[String], max: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for line in lines {
+        let line: String = line.chars().take(max).collect();
+        if !cur.is_empty() && cur.len() + line.len() + 1 > max {
+            out.push(std::mem::take(&mut cur));
+        }
+        cur.push_str(&line);
+        cur.push('\n');
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Summarise a meeting transcript ("[10:02] Name: text" lines) in parts, then join the parts.
+/// "You" is the user. Owners are kept so only the user's items become suggestions.
+pub fn summarise_meeting(
+    cfg: &AiSettings,
+    lines: &[String],
+    meeting_date: &str,
+) -> AppResult<crate::repo::meetings::MeetingSummary> {
+    use crate::repo::meetings::{ActionItem, MeetingSummary};
+    #[derive(Deserialize, Default)]
+    #[serde(rename_all = "camelCase", default)]
+    struct Part {
+        summary: String,
+        decisions: Vec<String>,
+        action_items: Vec<ActionItem>,
+    }
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "summary": { "type": "string", "description": "2-4 sentences" },
+            "decisions": { "type": "array", "items": { "type": "string" } },
+            "actionItems": { "type": "array", "items": { "type": "object", "properties": {
+                "owner": { "type": "string", "description": "speaker name exactly as in the transcript; You for the user" },
+                "title": { "type": "string", "description": "short imperative action" },
+                "dueDate": { "type": ["string", "null"], "description": "YYYY-MM-DD or null" },
+                "quote": { "type": ["string", "null"], "description": "the words that show it" }
+            }, "required": ["owner", "title"] } }
+        },
+        "required": ["summary", "decisions", "actionItems"]
+    });
+    let system = format!(
+        "You take notes for a meeting held on {meeting_date}. The transcript is from live captions and \
+         may have errors. The speaker \"You\" is the person you work for. Write a short summary, the \
+         decisions made, and the action items. For each action item set owner to the person who will do \
+         it, using the speaker name as written; use \"You\" when the person you work for agreed to do \
+         it or was asked to do it. Resolve relative dates against the meeting date; if none, null. \
+         Only use what the transcript says."
+    );
+    let timeout = Duration::from_secs(600);
+    let parts_text = chunks(lines, MEETING_CHUNK_CHARS);
+    if parts_text.is_empty() {
+        return Err(AppError::invalid("the meeting has no captions"));
+    }
+    let n = parts_text.len();
+    let mut parts = Vec::with_capacity(n);
+    for (i, text) in parts_text.iter().enumerate() {
+        let user = if n == 1 {
+            format!("Transcript:\n{text}")
+        } else {
+            format!("Part {} of {n} of the transcript:\n{text}", i + 1)
+        };
+        let (p, _): (Part, f64) = chat_with(cfg, &system, &user, schema.clone(), timeout)?;
+        parts.push(p);
+    }
+    let mut out = MeetingSummary::default();
+    for p in &parts {
+        out.decisions.extend(p.decisions.iter().cloned());
+        out.action_items.extend(p.action_items.iter().cloned());
+    }
+    out.summary = if n == 1 {
+        parts[0].summary.clone()
+    } else {
+        #[derive(Deserialize)]
+        struct Joined {
+            summary: String,
+        }
+        let notes = parts
+            .iter()
+            .enumerate()
+            .map(|(i, p)| format!("Part {}: {}", i + 1, p.summary.trim()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (j, _): (Joined, f64) = chat_with(
+            cfg,
+            "Join these notes on parts of one meeting into one summary of 3 to 6 sentences. \
+             Only use what the notes say.",
+            &notes,
+            json!({ "type": "object", "properties": { "summary": { "type": "string" } }, "required": ["summary"] }),
+            timeout,
+        )?;
+        j.summary
+    };
+    if out.summary.trim().is_empty() {
+        return Err(AppError::invalid(
+            "The model did not write a summary; try again",
+        ));
+    }
+    Ok(crate::repo::meetings::clean_summary(&out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,6 +536,33 @@ mod tests {
         let url = fake_ollama(r#"{"steps":["Fix validation","  ","Test Irish translations"]}"#);
         let (steps, _) = break_down(&on(url), "Finish profile", "").unwrap();
         assert_eq!(steps, ["Fix validation", "Test Irish translations"]);
+    }
+
+    #[test]
+    fn meeting_summary_keeps_owners_and_cleans_output() {
+        let url = fake_ollama(
+            r#"{"summary":"Report goes out Friday.","decisions":["Ship Friday"],"actionItems":[{"owner":"You","title":"Send the report","dueDate":"2026-11-27","quote":"I'll send it"},{"owner":"Sarah","title":"Book the room","dueDate":"not a date"}]}"#,
+        );
+        let lines = vec![
+            "[10:01] Sarah: Can you send the report by Friday?".to_string(),
+            "[10:01] You: Yes.".to_string(),
+        ];
+        let s = summarise_meeting(&on(url), &lines, "2026-11-23").unwrap();
+        assert_eq!(s.summary, "Report goes out Friday.");
+        assert_eq!(s.action_items.len(), 2);
+        assert_eq!(s.action_items[0].owner.as_deref(), Some("You"));
+        assert_eq!(s.action_items[1].due_date, None);
+    }
+
+    #[test]
+    fn transcript_is_split_into_parts() {
+        let lines: Vec<String> = (0..50)
+            .map(|i| format!("[10:{i:02}] You: {}", "word ".repeat(40)))
+            .collect();
+        let parts = chunks(&lines, 2000);
+        assert!(parts.len() > 1);
+        assert!(parts.iter().all(|p| p.len() <= 2000));
+        assert_eq!(parts.concat().lines().count(), 50);
     }
 
     #[test]

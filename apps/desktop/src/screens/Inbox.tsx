@@ -8,6 +8,12 @@ import { ago, hostOf } from "../lib/format";
 import { useAction, useAiEnabled, useTask } from "../lib/queries";
 
 export const ORIGIN = { chrome: "Chrome", claude: "Claude Code", ai: "Local AI", note: "Note" } as const;
+
+/** "From meeting: <title>" for suggestions made from a meeting, else "From <origin>". */
+export function originLabel(s: Suggestion): string {
+  const m = s.context?.meeting as { title?: string | null } | undefined;
+  return m ? `From meeting: ${m.title || "Untitled meeting"}` : `From ${ORIGIN[s.origin]}`;
+}
 export const suggestionTitle = (s: Suggestion) =>
   s.kind === "task_update"
     ? "Change to an existing task"
@@ -43,7 +49,7 @@ export function UpdateReview({ s, onDone }: { s: Suggestion; onDone: () => void 
   }
   return (
     <article className="px-5 py-4" aria-label="Review change">
-      <p className="mb-1 text-xs text-muted">From {ORIGIN[s.origin]} · {ago(s.createdAt)}</p>
+      <p className="mb-1 text-xs text-muted">{originLabel(s)} · {ago(s.createdAt)}</p>
       <h2 className="mb-4 text-xl font-semibold">Apply this change?</h2>
       {target.isError ? (
         <p className="text-muted">The task this change was for no longer exists. Dismiss it.</p>
@@ -148,7 +154,7 @@ export function Review({ s, projects, onDone }: { s: Suggestion; projects: Proje
     <article className="px-5 py-4" aria-label="Review suggestion">
       <p className="mb-1 flex items-center gap-1.5 text-xs text-muted">
         <SourceIcon source={s.origin === "chrome" ? "chrome" : s.origin === "claude" ? "claude" : "ai"} />
-        From {ORIGIN[s.origin]} · {ago(s.createdAt)}
+        {originLabel(s)} · {ago(s.createdAt)}
       </p>
       <div className="mb-4 flex items-center gap-3">
         <h2 className="text-xl font-semibold">{s.kind === "note" ? "Save this note?" : "Add this task?"}</h2>

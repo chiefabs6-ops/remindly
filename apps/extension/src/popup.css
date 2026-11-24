@@ -49,3 +49,5 @@ li.empty { color: var(--muted); }
 .msg { min-height: 20px; margin: 10px 0 0; font-size: 13px; }
 .msg.ok { color: var(--positive); }
 .msg.err { color: var(--negative); }
+label.switch { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; color: var(--text); font-weight: 400; cursor: pointer; }
+label.switch input { width: auto; margin: 0; accent-color: var(--primary); }

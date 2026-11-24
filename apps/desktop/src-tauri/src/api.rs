@@ -31,6 +31,7 @@ use crate::{
 /// Settings key holding extra allowed `Origin` values (e.g. `chrome-extension://<id>`).
 pub const ALLOWED_ORIGINS_KEY: &str = "api.allowedOrigins";
 const MAX_BODY: usize = 256 * 1024;
+const MAX_MEETING_BODY: usize = 1024 * 1024;
 /// Routes an unlisted extension origin may call: health (so an unpaired extension can tell that
 /// Tether is running) and pairing (it proves itself with the code).
 const PAIR_PATH: &str = "/v1/pair";
@@ -79,6 +80,13 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/open", post(open_app))
         .route("/v1/code-projects/resolve", post(resolve_code_project))
         .route("/v1/notes", get(list_notes))
+        // A long meeting is bigger than other requests: allow up to 1 MiB here only.
+        .route(
+            "/v1/meetings",
+            post(create_meeting).layer(DefaultBodyLimit::max(MAX_MEETING_BODY)),
+        )
+        .route("/v1/meetings/{id}", get(get_meeting))
+        .route("/v1/meetings/{id}/summary", post(save_meeting_summary))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     Router::new()
@@ -317,6 +325,61 @@ async fn create_suggestion(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
+/// The Chrome extension sends a finished Google Meet transcript. The note is saved now; the
+/// summary is queued for the local AI (or marked "off" when it is turned off).
+async fn create_meeting(
+    State(s): State<ApiState>,
+    Json(body): Json<crate::repo::meetings::MeetingInput>,
+) -> AppResult<(StatusCode, Json<serde_json::Value>)> {
+    let db = s.app.db.clone();
+    let m = blocking(move || {
+        let ai_on = db.read(crate::ai::AiSettings::load)?.enabled;
+        db.write(|c| crate::repo::meetings::create(c, &body, ai_on))
+    })
+    .await?;
+    (s.on_change)();
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "id": m.id, "noteId": m.note_id, "summaryStatus": m.summary_status })),
+    ))
+}
+
+/// For Claude Code's /tether:meeting: the meeting and its plain transcript.
+async fn get_meeting(
+    State(s): State<ApiState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    let db = s.app.db.clone();
+    let (m, segments) =
+        blocking(move || db.read(|c| crate::repo::meetings::get_with_segments(c, &id))).await?;
+    Ok(Json(json!({
+        "id": m.id,
+        "noteId": m.note_id,
+        "title": m.title,
+        "startedAt": m.started_at,
+        "endedAt": m.ended_at,
+        "summaryStatus": m.summary_status,
+        "transcript": crate::repo::meetings::transcript_lines(&segments).join("\n"),
+    })))
+}
+
+/// Claude Code's summary: written into the note; action items become suggestions to approve.
+async fn save_meeting_summary(
+    State(s): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<crate::repo::meetings::MeetingSummary>,
+) -> AppResult<Json<serde_json::Value>> {
+    let db = s.app.db.clone();
+    let n = blocking(move || {
+        db.write(|c| {
+            crate::repo::meetings::apply_summary(c, &id, &body, crate::model::Origin::Claude)
+        })
+    })
+    .await?;
+    (s.on_change)();
+    Ok(Json(json!({ "ok": true, "suggestions": n })))
+}
+
 #[derive(Deserialize)]
 struct SuggestionQuery {
     status: Option<String>,
@@ -407,7 +470,24 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tower::ServiceExt;
 
-    fn setup() -> (Router, String, Arc<AtomicUsize>, std::path::PathBuf) {
+    /// Test data folder: on drop it releases the pairing slot's copy of the database and
+    /// deletes the folder (the router must be dropped first; see `done`).
+    struct TempDir(std::path::PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            PAIR_APP.with(|p| p.borrow_mut().take());
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// End of a test: close the router (and its database) before the folder is deleted.
+    fn done(r: Router, dir: TempDir) {
+        drop(r);
+        drop(dir);
+    }
+
+    fn setup() -> (Router, String, Arc<AtomicUsize>, TempDir) {
         let dir = std::env::temp_dir().join(format!("tether-api-{}", ulid::Ulid::generate()));
         let app = AppState::open(&dir).unwrap();
         let token = app.token();
@@ -422,7 +502,7 @@ mod tests {
             }),
             on_open: Arc::new(|| {}),
         });
-        (r, token, changes, dir)
+        (r, token, changes, TempDir(dir))
     }
 
     thread_local! {
@@ -492,7 +572,7 @@ mod tests {
             r.clone().oneshot(bad_host).await.unwrap().status(),
             StatusCode::FORBIDDEN
         );
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[test]
@@ -548,7 +628,8 @@ mod tests {
         assert_eq!(send(&r, list()).await.0, StatusCode::OK);
         // Single use.
         assert_eq!(send(&r, pair(&code, EXT)).await.0, StatusCode::BAD_REQUEST);
-        let _ = std::fs::remove_dir_all(dir);
+        drop(app);
+        done(r, dir);
     }
 
     fn req(method: &str, uri: &str) -> axum::http::request::Builder {
@@ -591,7 +672,7 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(send(&r, rebinding).await.0, StatusCode::FORBIDDEN);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -609,7 +690,7 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(send(&r, ok).await.0, StatusCode::OK);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -622,7 +703,7 @@ mod tests {
             .body(Body::from(suggestion_body()))
             .unwrap();
         assert_eq!(send(&r, res).await.0, StatusCode::FORBIDDEN);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -649,7 +730,72 @@ mod tests {
             .unwrap();
         let (_, body) = send(&r, list).await;
         assert_eq!(body.as_array().unwrap().len(), 1);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
+    }
+
+    fn meeting_body(n: usize) -> String {
+        let segments: Vec<_> = (0..n)
+            .map(|i| json!({ "speaker": if i % 2 == 0 { "You" } else { "Sarah" }, "text": "x".repeat(150), "at": format!("2026-11-23T10:{:02}:{:02}Z", (i / 60) % 60, i % 60) }))
+            .collect();
+        json!({ "dedupeKey": "meet:abc-defg-hij:1", "meetCode": "abc-defg-hij", "title": "Weekly sync",
+            "startedAt": "2026-11-23T10:00:00Z", "endedAt": "2026-11-23T11:00:00Z", "segments": segments })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn meetings_need_token_accept_long_calls_and_are_idempotent() {
+        let (r, token, changes, dir) = setup();
+        let body = meeting_body(2000); // ~400 KB: above the normal 256 KB limit
+        assert!(body.len() > MAX_BODY);
+        let unauth = req("POST", "/v1/meetings")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.clone()))
+            .unwrap();
+        assert_eq!(send(&r, unauth).await.0, StatusCode::UNAUTHORIZED);
+        let post = || {
+            req("POST", "/v1/meetings")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.clone()))
+                .unwrap()
+        };
+        let (s1, b1) = send(&r, post()).await;
+        assert_eq!(s1, StatusCode::CREATED, "{b1}");
+        assert_eq!(b1["summaryStatus"], "off"); // local AI is off by default
+        let (_, b2) = send(&r, post()).await;
+        assert_eq!(b1["id"], b2["id"]);
+        assert!(changes.load(Ordering::SeqCst) >= 1);
+
+        let id = b1["id"].as_str().unwrap();
+        let get = req("GET", &format!("/v1/meetings/{id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let (s, m) = send(&r, get).await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(m["transcript"].as_str().unwrap().contains("You: "));
+
+        let save = req("POST", &format!("/v1/meetings/{id}/summary"))
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "summary": "Short.", "decisions": [], "actionItems": [{ "title": "Send the report", "dueDate": "2026-11-27" }] }).to_string()))
+            .unwrap();
+        let (s, out) = send(&r, save).await;
+        assert_eq!(s, StatusCode::OK, "{out}");
+        assert_eq!(out["suggestions"], 1);
+        done(r, dir);
+    }
+
+    #[tokio::test]
+    async fn meeting_over_one_mib_is_refused() {
+        let (r, token, _, dir) = setup();
+        let res = req("POST", "/v1/meetings")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(meeting_body(6000)))
+            .unwrap();
+        assert_eq!(send(&r, res).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -665,7 +811,7 @@ mod tests {
         let (s, body) = send(&r, res).await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
         assert_eq!(body["code"], "invalid");
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 
     #[tokio::test]
@@ -676,6 +822,6 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(send(&r, res).await.0, StatusCode::NOT_FOUND);
-        let _ = std::fs::remove_dir_all(dir);
+        done(r, dir);
     }
 }

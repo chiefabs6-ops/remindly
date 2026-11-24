@@ -169,6 +169,24 @@ pub fn note_delete(s: Db, id: String) -> AppResult<()> {
     s.db.write(|c| notes::soft_delete(c, &id))
 }
 
+// ---------- meetings ----------
+
+/// The meeting behind a meeting note (status of its summary), if any.
+#[tauri::command(async)]
+pub fn meeting_for_note(
+    s: Db,
+    note_id: String,
+) -> AppResult<Option<crate::repo::meetings::Meeting>> {
+    s.db.read(|c| crate::repo::meetings::for_note(c, &note_id))
+}
+
+/// "Try again": queue the local AI summary for this meeting.
+#[tauri::command(async)]
+pub fn meeting_resummarise(s: Db, id: String) -> AppResult<crate::repo::meetings::Meeting> {
+    let ai_on = s.db.read(crate::ai::AiSettings::load)?.enabled;
+    s.db.write(|c| crate::repo::meetings::resummarise(c, &id, ai_on))
+}
+
 #[tauri::command(async)]
 pub fn note_convert_to_tasks(s: Db, id: String) -> AppResult<Vec<Task>> {
     s.db.write(|c| notes::convert_to_tasks(c, &id, Actor::User))

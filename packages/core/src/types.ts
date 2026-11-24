@@ -207,6 +207,21 @@ export interface Suggestion {
   decidedAt: string | null;
 }
 
+export type MeetingSummaryStatus = "pending" | "running" | "done" | "failed" | "off";
+
+export interface Meeting {
+  id: string;
+  noteId: string | null;
+  meetCode: string;
+  title: string | null;
+  startedAt: string;
+  endedAt: string;
+  summaryStatus: MeetingSummaryStatus;
+  summaryError: string | null;
+  segmentCount: number;
+  suggestionCount: number;
+}
+
 export interface Dashboard {
   today: string;
   overdue: Task[];

@@ -3,6 +3,7 @@
 pub mod code_projects;
 pub mod dashboard;
 pub mod history;
+pub mod meetings;
 pub mod notes;
 pub mod plan;
 pub mod projects;

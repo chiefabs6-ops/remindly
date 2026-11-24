@@ -20,6 +20,7 @@ export const keys = {
   notes: (f: NoteFilter) => ["tether", "notes", f] as const,
   suggestions: (s: SuggestionStatus | null) => ["tether", "suggestions", s] as const,
   settings: ["tether", "settings"] as const,
+  meeting: (noteId: string) => ["tether", "meeting", noteId] as const,
   search: (q: string) => ["tether", "search", q] as const,
 };
 
@@ -53,6 +54,17 @@ export const useProjects = (archived = false) =>
 export const useNotes = (f: NoteFilter) => useQuery({ queryKey: keys.notes(f), queryFn: () => api.notes(f) });
 export const useSuggestions = (s: SuggestionStatus | null) =>
   useQuery({ queryKey: keys.suggestions(s), queryFn: () => api.suggestions(s) });
+/** Meeting record behind a note (null for ordinary notes). Polls while the summary is being made. */
+export const useMeetingForNote = (noteId: string | null) =>
+  useQuery({
+    queryKey: keys.meeting(noteId ?? ""),
+    queryFn: () => api.meetingForNote(noteId!),
+    enabled: !!noteId,
+    refetchInterval: (q) => {
+      const s = q.state.data?.summaryStatus;
+      return s === "pending" || s === "running" ? 5_000 : false;
+    },
+  });
 export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: api.settings });
 /** True when the user switched local AI on (buttons stay hidden otherwise). */
 export function useAiEnabled() {

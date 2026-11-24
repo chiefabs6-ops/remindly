@@ -3,7 +3,9 @@
 
 export const API = "http://127.0.0.1:47821";
 const MAX_QUEUE = 200;
+const MAX_MEET_QUEUE = 20;
 const MAX_RECENT = 10;
+export const MAX_MEET_SEGMENTS = 5000;
 
 export interface Storage {
   get<T>(key: string): Promise<T | undefined>;
@@ -27,6 +29,102 @@ export interface Queued {
   lastError?: string;
 }
 
+/** One caption line from Google Meet. `at` = RFC3339 time it was first seen. */
+export interface MeetSegment {
+  id: string;
+  speaker: string;
+  text: string;
+  at: string;
+}
+
+/** Content script -> background messages (content script runs only on meet.google.com). */
+export type MeetMsg =
+  | { type: "meet:config" }
+  | { type: "meet:segments"; key: string; meetCode: string; title: string | null; startedAt: string; segments: MeetSegment[] }
+  | { type: "meet:end"; key: string };
+
+/** Body of POST /v1/meetings. */
+export interface MeetingBody {
+  dedupeKey: string;
+  meetCode: string;
+  title: string | null;
+  startedAt: string;
+  endedAt: string;
+  segments: { speaker: string; text: string; at: string }[];
+}
+
+export interface MeetQueued {
+  body: MeetingBody;
+  addedAt: string;
+  attempts: number;
+  lastError?: string;
+}
+
+/** Add new segments to a session by id (later copy wins), keep order by `at`, cap the size (newest kept). */
+export function mergeSegments(existing: MeetSegment[], incoming: MeetSegment[], cap = MAX_MEET_SEGMENTS): MeetSegment[] {
+  const byId = new Map<string, MeetSegment>();
+  for (const s of existing) byId.set(s.id, s);
+  for (const s of incoming) byId.set(s.id, s);
+  // Array.sort is stable, so equal times keep their first-seen order.
+  const all = [...byId.values()].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  return all.length > cap ? all.slice(all.length - cap) : all;
+}
+
+export const MEET_STALE_MS = 15 * 60 * 1000;
+export const MAX_MEET_FAILED = 5;
+
+/** A call in progress, kept in storage.local under `meet:<key>`. */
+export interface MeetSession {
+  meetCode: string;
+  title: string | null;
+  startedAt: string;
+  updatedAt: string;
+  segments: MeetSegment[];
+}
+
+/** True when a session has been quiet for more than 15 minutes (or its time is unreadable). */
+export function isStaleSession(updatedAt: string | undefined, nowMs: number, staleMs = MEET_STALE_MS): boolean {
+  const t = Date.parse(updatedAt ?? "");
+  return Number.isNaN(t) || nowMs - t > staleMs;
+}
+
+/** Apply a `meet:segments` message to a session. Empty `segments` (heartbeat) still bumps `updatedAt` and creates the session. */
+export function upsertSession(
+  existing: MeetSession | undefined,
+  msg: { meetCode: string; title: string | null; startedAt: string; segments: MeetSegment[] },
+  nowIso: string,
+): MeetSession {
+  return {
+    meetCode: existing?.meetCode ?? msg.meetCode,
+    title: msg.title ? msg.title : (existing?.title ?? null),
+    startedAt: existing?.startedAt ?? msg.startedAt,
+    updatedAt: nowIso,
+    segments: mergeSegments(existing?.segments ?? [], msg.segments),
+  };
+}
+
+/** Which failed-meeting keys to delete so at most `max` stay (oldest `failedAt` go first). */
+export function failedToEvict(entries: { key: string; failedAt: string }[], max = MAX_MEET_FAILED): string[] {
+  const sorted = [...entries].sort((a, b) => (a.failedAt < b.failedAt ? -1 : a.failedAt > b.failedAt ? 1 : 0));
+  return sorted.slice(0, Math.max(0, sorted.length - max)).map((e) => e.key);
+}
+
+/**
+ * Who may send this message to the worker? "meet" = our content script on a Meet tab (meet:* only);
+ * "popup" = our own extension page (no tab); null = refuse.
+ */
+export function allowMessage(
+  msgType: unknown,
+  sender: { id?: string; tab?: { url?: string } },
+  runtimeId: string,
+): "meet" | "popup" | null {
+  if (sender.id !== runtimeId) return null;
+  if (typeof msgType === "string" && msgType.startsWith("meet:")) {
+    return sender.tab?.url?.startsWith("https://meet.google.com/") ? "meet" : null;
+  }
+  return sender.tab === undefined ? "popup" : null;
+}
+
 export interface Recent {
   title: string;
   at: string;
@@ -38,6 +136,10 @@ export type SendResult =
   | { ok: true }
   | { ok: false; retry: true; reason: "offline" | "server" }
   | { ok: false; retry: false; reason: "unpaired" | "rejected"; message: string };
+
+function meetTitle(b: MeetingBody): string {
+  return `Meeting: ${b.title?.trim() || b.meetCode}`;
+}
 
 export class TetherClient {
   /** Serialises queue/recent read-modify-write cycles (capture vs flush vs alarm). */
@@ -112,11 +214,19 @@ export class TetherClient {
     }
   }
 
-  async send(body: SuggestionBody): Promise<SendResult> {
+  send(body: SuggestionBody): Promise<SendResult> {
+    return this.post("/v1/suggestions", body);
+  }
+
+  sendMeeting(body: MeetingBody): Promise<SendResult> {
+    return this.post("/v1/meetings", body);
+  }
+
+  private async post(path: string, body: unknown): Promise<SendResult> {
     if (!(await this.token())) return { ok: false, retry: false, reason: "unpaired", message: "Not paired with Tether" };
     let res: Response;
     try {
-      res = await this.request("/v1/suggestions", { method: "POST", body: JSON.stringify(body) });
+      res = await this.request(path, { method: "POST", body: JSON.stringify(body) });
     } catch {
       return { ok: false, retry: true, reason: "offline" };
     }
@@ -132,6 +242,10 @@ export class TetherClient {
 
   async queue(): Promise<Queued[]> {
     return (await this.storage.get<Queued[]>("queue")) ?? [];
+  }
+
+  async meetQueue(): Promise<MeetQueued[]> {
+    return (await this.storage.get<MeetQueued[]>("meetQueue")) ?? [];
   }
 
   async recent(): Promise<Recent[]> {
@@ -171,7 +285,11 @@ export class TetherClient {
 
   /** Retry everything queued. Items the server rejects as invalid are dropped (they would never succeed). */
   flush(): Promise<{ sent: number; left: number; dropped: number }> {
-    return this.exclusive(() => this.flushNow());
+    return this.exclusive(async () => {
+      const a = await this.flushNow();
+      const b = await this.flushMeetNow();
+      return { sent: a.sent + b.sent, left: a.left + b.left, dropped: a.dropped + b.dropped };
+    });
   }
 
   private async flushNow(): Promise<{ sent: number; left: number; dropped: number }> {
@@ -199,6 +317,55 @@ export class TetherClient {
     }
     await this.storage.set("queue", left);
     return { sent, left: left.length, dropped };
+  }
+
+  private async flushMeetNow(): Promise<{ sent: number; left: number; dropped: number }> {
+    const q = await this.meetQueue();
+    if (!q.length || !(await this.token())) return { sent: 0, left: q.length, dropped: 0 };
+    const left: MeetQueued[] = [];
+    let sent = 0;
+    let dropped = 0;
+    for (const item of q) {
+      const r = await this.sendMeeting(item.body);
+      const title = meetTitle(item.body);
+      if (r.ok) {
+        sent++;
+        await this.remember(title, item.body.dedupeKey, "sent");
+      } else if (r.retry || r.reason === "unpaired") {
+        left.push({ ...item, attempts: item.attempts + 1, lastError: r.reason });
+        if (r.reason === "offline") {
+          left.push(...q.slice(q.indexOf(item) + 1));
+          break;
+        }
+      } else {
+        dropped++;
+        await this.remember(title, item.body.dedupeKey, "rejected");
+      }
+    }
+    await this.storage.set("meetQueue", left);
+    return { sent, left: left.length, dropped };
+  }
+
+  /** Send a finished meeting now, or queue it (separate queue, max 20) if Tether is closed / not paired. */
+  captureMeeting(body: MeetingBody): Promise<"sent" | "queued" | { error: string }> {
+    return this.exclusive(() => this.captureMeetingNow(body));
+  }
+
+  private async captureMeetingNow(body: MeetingBody): Promise<"sent" | "queued" | { error: string }> {
+    const title = meetTitle(body);
+    const r = await this.sendMeeting(body);
+    if (r.ok) {
+      await this.remember(title, body.dedupeKey, "sent");
+      return "sent";
+    }
+    if (r.retry || r.reason === "unpaired") {
+      const q = (await this.meetQueue()).filter((x) => x.body.dedupeKey !== body.dedupeKey);
+      q.push({ body, addedAt: new Date().toISOString(), attempts: 1, lastError: r.reason });
+      await this.storage.set("meetQueue", q.slice(-MAX_MEET_QUEUE));
+      await this.remember(title, body.dedupeKey, "queued");
+      return "queued";
+    }
+    return { error: r.message };
   }
 
   async pendingCount(): Promise<number | null> {

@@ -6,7 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { chooseDir, describeRepo, rootFromUri, type RepoInfo } from "./project.js";
 import { isGenericTitle } from "./generic.js";
-import { TetherError, TetherOffline, call, dedupeKey, suggest, type SuggestResult } from "./tether.js";
+import { TetherError, TetherOffline, call, dedupeKey, getMeeting, saveMeetingSummary, suggest, type SuggestResult } from "./tether.js";
 
 const INSTRUCTIONS = `Tether is the user's personal task manager on this PC. Use it to hand off unfinished work.
 - When the user stops for now ("that's enough for today", "we'll finish this tomorrow", "park this"), or work is left unfinished at the end of a task, call get_project_context first, then suggest_task (or suggest_task_update if a matching open task exists).
@@ -338,6 +338,73 @@ export function createServer() {
           dedupeKey: dedupeKey(["note", title, body]),
         });
         return text(outcome(r, `the note "${title}"`));
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "tether_get_meeting",
+    {
+      title: "Tether: get a meeting transcript",
+      description:
+        "Read one Google Meet meeting captured by Tether: title, times, summary status and the full transcript text (lines like \"[10:02] You: ...\"). \"You\" in the transcript is the user. Use it to write a summary, then call tether_save_meeting_summary.",
+      inputSchema: z.object({ meetingId: z.string().min(1).max(64) }),
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ meetingId }) => {
+      try {
+        const m = await getMeeting(meetingId);
+        return text(
+          [
+            `Meeting: ${m.title || "Untitled"} [${m.id}]`,
+            `Started: ${m.startedAt}`,
+            `Ended: ${m.endedAt}`,
+            `Summary status: ${m.summaryStatus}`,
+            "",
+            "Transcript:",
+            m.transcript,
+          ].join("\n"),
+        );
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "tether_save_meeting_summary",
+    {
+      title: "Tether: save a meeting summary",
+      description:
+        "Save a summary and decisions into the meeting's note in Tether. actionItems must be ONLY the user's own: things said by \"You\" in the transcript, or asked of the user by someone else. Never list other people's tasks. Each action item arrives in Tether as a suggestion that waits for the user's approval; it does not become a task until approved.",
+      inputSchema: z.object({
+        meetingId: z.string().min(1).max(64),
+        summary: z.string().min(1).max(4000).describe("3-6 sentences"),
+        decisions: z.array(z.string().min(1).max(500)).max(20),
+        actionItems: z
+          .array(
+            z.object({
+              title: z.string().min(1).max(200).describe("Short imperative action for the user"),
+              dueDate: DATE.optional().describe("Only if a date was said; resolve relative dates against the meeting date"),
+              quote: z.string().max(500).optional().describe("The transcript line this came from"),
+            }),
+          )
+          .max(30),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ meetingId, summary, decisions, actionItems }) => {
+      try {
+        const r = await saveMeetingSummary(meetingId, {
+          summary,
+          decisions,
+          actionItems: actionItems.map((a) => ({ title: a.title.trim(), dueDate: a.dueDate ?? null, quote: a.quote ?? null })),
+        });
+        return text(
+          `Saved the summary to the meeting note. ${r.suggestions} action item suggestion${r.suggestions === 1 ? " is" : "s are"} waiting for the user's approval in Tether.`,
+        );
       } catch (e) {
         return failure(e);
       }
