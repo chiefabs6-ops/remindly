@@ -588,6 +588,53 @@ pub async fn ai_test(s: Db<'_>) -> AppResult<AiResult<bool>> {
     .await
 }
 
+// ---------- updates (Settings → Updates; desktop UI only, not the local API) ----------
+
+#[tauri::command(async)]
+pub fn update_settings_get(s: Db) -> AppResult<crate::updater::UpdateSettings> {
+    s.db.read(crate::updater::UpdateSettings::load)
+}
+
+#[tauri::command(async)]
+pub fn update_settings_set(
+    s: Db,
+    value: crate::updater::UpdateSettings,
+) -> AppResult<crate::updater::UpdateSettings> {
+    let value = crate::updater::UpdateSettings {
+        repo: value.repo.trim().to_string(),
+    };
+    value.validate()?;
+    s.db.write(|c| value.save(c))?;
+    Ok(value)
+}
+
+#[tauri::command]
+pub async fn update_status(s: Db<'_>) -> AppResult<crate::updater::UpdateStatus> {
+    let st = s.inner().clone();
+    off_runtime(move || {
+        Ok(crate::updater::status(
+            &st.db.read(crate::updater::UpdateSettings::load)?,
+        ))
+    })
+    .await
+}
+
+/// Fetch main from GitHub, then report.
+#[tauri::command]
+pub async fn update_check(s: Db<'_>) -> AppResult<crate::updater::UpdateStatus> {
+    let st = s.inner().clone();
+    off_runtime(move || crate::updater::check(&st.db.read(crate::updater::UpdateSettings::load)?))
+        .await
+}
+
+/// Opens the update window; Tether closes and reopens when it is done.
+#[tauri::command]
+pub async fn update_run(s: Db<'_>) -> AppResult<()> {
+    let st = s.inner().clone();
+    off_runtime(move || crate::updater::run(&st.db.read(crate::updater::UpdateSettings::load)?))
+        .await
+}
+
 /// Runs a model call on the blocking pool so the async runtime (which also serves the local API)
 /// is never tied up for the length of a generation.
 async fn off_runtime<T: Send + 'static>(

@@ -24,6 +24,8 @@
   .sfs:disabled { opacity: 0.6; }
   .sfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0 0; border-top: 1px solid var(--rule); }
   .sskel { height: 160px; border-radius: var(--radius-control); background: var(--active); }
+  .uprows { padding: 12px 0; }
+  .uprows p { margin: 0 0 4px; }
   .sempty { margin: 0; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius-control); color: var(--muted); }
   .sample { margin: 12px 0 0; padding: 12px; border-radius: var(--radius-control); background: var(--raised); }
   .blist { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-control); }

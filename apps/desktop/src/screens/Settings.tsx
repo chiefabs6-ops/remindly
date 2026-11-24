@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, errorMessage, type AiSettings, type BackupSettings, type ReminderSettings } from "../lib/api";
+import { api, errorMessage, type AiSettings, type BackupSettings, type ReminderSettings, type UpdateStatus } from "../lib/api";
 import { useAction, useSettings } from "../lib/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
@@ -298,11 +298,67 @@ function Startup() {
   );
 }
 
+function Updates() {
+  const cfg = useQuery({ queryKey: ["tether", "update-settings"], queryFn: api.updateSettings });
+  const status = useQuery({ queryKey: ["tether", "update-status"], queryFn: api.updateStatus });
+  const [repo, setRepo] = useState<string | null>(null);
+  const [sure, setSure] = useState(false);
+  useEffect(() => {
+    if (cfg.data) setRepo(cfg.data.repo);
+  }, [cfg.data]);
+  const save = useAction((v: string) => api.setUpdateSettings({ repo: v }));
+  const check = useAction(() => api.updateCheck());
+  const run = useAction(() => api.updateRun());
+  if (repo === null || !status.data) return <div className="sskel" aria-busy="true" />;
+  const st: UpdateStatus = check.data ?? status.data;
+  const dirty = repo !== cfg.data?.repo;
+  const changes = st.behind === null ? null : st.behind === 0 ? "Up to date" : `${st.behind} new ${st.behind === 1 ? "change" : "changes"} on main`;
+  const error = save.error ?? check.error ?? run.error;
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); save.mutate(repo, { onSuccess: () => { void status.refetch(); } }); }}>
+      <p className="lead">Update Tether from its source folder on this PC. It gets the latest version from GitHub, builds it (about a minute) and reopens Tether.</p>
+      <SRow label="Source folder" htmlFor="up-repo" help={st.problem ?? undefined}>
+        <input id="up-repo" className="field w-56" value={repo} onChange={(e) => setRepo(e.target.value)} />
+      </SRow>
+      <div className="sfoot">
+        <button className="btn" disabled={!dirty || save.isPending}>Save</button>
+        <button type="button" className="btn" disabled={check.isPending} onClick={() => check.mutate(undefined)}>
+          {check.isPending ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
+      <div className="uprows" role="status" aria-live="polite">
+        <p className="num">This app: {st.running}{changes && <> · <b>{changes}</b></>}</p>
+        {st.latest && <p className="muted">Latest on main: {st.latest}</p>}
+        {run.isSuccess && <p>Updating in a separate window… Tether will close and reopen when it’s done.</p>}
+      </div>
+      <div className="sfoot">
+        {sure ? (
+          <>
+            <span>Tether will close and reopen — update now?</span>
+            <button type="button" className="btn btn-primary" disabled={run.isPending}
+              onClick={() => { setSure(false); run.mutate(undefined); }}>Confirm</button>
+            <button type="button" className="btn" onClick={() => setSure(false)}>Cancel</button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn btn-primary" disabled={!st.canUpdate || run.isPending || run.isSuccess} onClick={() => setSure(true)}>
+              Update Tether
+            </button>
+            {!st.canUpdate && st.reason && <span className="muted">{st.reason}</span>}
+          </>
+        )}
+      </div>
+      {error && <p className="err pad" role="alert">{errorMessage(error)}</p>}
+    </form>
+  );
+}
+
 const SECTIONS = [
   { id: "appearance", label: "Appearance" },
   { id: "reminders", label: "Reminders" },
   { id: "backups", label: "Backups" },
   { id: "ai", label: "Local AI" },
+  { id: "updates", label: "Updates" },
   { id: "startup", label: "Startup" },
   { id: "connection", label: "Local connection" },
   { id: "chrome", label: "Chrome" },
@@ -357,6 +413,12 @@ export function SettingsScreen() {
         {section === "ai" && (
           <Section title="Local AI" lead="Optional. Uses Ollama on this PC; off unless you turn it on. Everything works without it.">
             <LocalAi />
+          </Section>
+        )}
+
+        {section === "updates" && (
+          <Section title="Updates" lead="Optional. Only for the copy of Tether built from source on this PC.">
+            <Updates />
           </Section>
         )}
 
