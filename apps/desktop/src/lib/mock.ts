@@ -7,6 +7,7 @@ import {
   isoDate,
   isoTime,
   type Dashboard,
+  type HistoryEntry,
   type Meeting,
   type Note,
   type NoteFilter,
@@ -18,6 +19,7 @@ import {
   type Task,
   type TaskFilter,
   type TaskInput,
+  type TaskLink,
   type TaskStatus,
 } from "@tether/core";
 
@@ -33,6 +35,8 @@ interface Store {
   meetings: Meeting[];
   suggestions: Suggestion[];
   settings: Record<string, unknown>;
+  links?: TaskLink[];
+  history?: Record<string, HistoryEntry[]>;
 }
 
 function task(p: Partial<Task> & { title: string }): Task {
@@ -258,7 +262,7 @@ function withCounts(t: Task): Task {
 }
 
 function sortTasks(a: Task, b: Task) {
-  const k = (t: Task) => [t.dueDate ? 0 : 1, t.dueDate ?? "", t.dueTime ? 0 : 1, t.dueTime ?? "", -t.priority] as const;
+  const k = (t: Task) => [t.dueDate ? 0 : 1, t.dueDate ?? "", t.dueTime ? 0 : 1, t.dueTime ?? "", -t.priority, t.sortOrder] as const;
   const ka = k(a), kb = k(b);
   for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
   return a.createdAt.localeCompare(b.createdAt);
@@ -279,6 +283,12 @@ function listTasks(f: TaskFilter): Task[] {
     .map(withCounts)
     .sort(sortTasks)
     .slice(0, f.limit ?? 500);
+}
+
+let historySeq = 1;
+function logHistory(taskId: string, action: string, oldValue: string | null, newValue: string | null) {
+  const h = (store.history ??= {});
+  (h[taskId] ??= []).push({ id: historySeq++, at: now(), actor: "user", action, field: null, oldValue, newValue });
 }
 
 function getTask(taskId: string): Task | undefined {
@@ -364,7 +374,12 @@ const handlers: Record<string, (a: Args) => unknown> = {
   task_get: ({ id: tid }) => {
     const t = getTask(tid);
     if (!t) return err("not_found", "task not found");
-    return { ...withCounts(t), subtasks: listTasks({ parentId: tid }), history: [] };
+    return {
+      ...withCounts(t),
+      subtasks: listTasks({ parentId: tid }),
+      history: [...(store.history?.[tid] ?? [])].reverse(),
+      links: (store.links ?? []).filter((l) => l.taskId === tid),
+    };
   },
   task_create: ({ input, parentId }) => {
     const parent = parentId ? getTask(parentId) : null;
@@ -420,6 +435,35 @@ const handlers: Record<string, (a: Args) => unknown> = {
     store.tasks.forEach((t) => (t.id === tid || t.parentId === tid) && (t.deletedAt = null));
     return withCounts(store.tasks.find((t) => t.id === tid)!);
   },
+  task_reorder: ({ ids }) => {
+    (ids as string[]).forEach((tid, i) => {
+      const t = getTask(tid);
+      if (t) t.sortOrder = i;
+    });
+  },
+  task_link_add: ({ id: tid, url, title }) => {
+    if (!getTask(tid)) return err("not_found", "task not found");
+    const u = String(url ?? "").trim();
+    if (!/^https?:\/\/[^\s/]/i.test(u) || /\s/.test(u)) return err("invalid", "link must start with http:// or https://");
+    const link: TaskLink = { id: id(), taskId: tid, url: u, title: (title as string | null)?.trim() || null, createdAt: now() };
+    (store.links ??= []).push(link);
+    logHistory(tid, "link_added", null, u);
+    return link;
+  },
+  task_link_remove: ({ linkId }) => {
+    const l = (store.links ?? []).find((x) => x.id === linkId);
+    if (!l) return err("not_found", "link not found");
+    store.links = store.links!.filter((x) => x !== l);
+    logHistory(l.taskId, "link_removed", l.url, null);
+  },
+  task_comment: ({ id: tid, text }) => {
+    if (!getTask(tid)) return err("not_found", "task not found");
+    const t = String(text ?? "").trim();
+    if (!t) return err("invalid", "update is empty");
+    if (t.length > 2000) return err("invalid", "update is too long (2000 characters max)");
+    logHistory(tid, "comment", null, t);
+  },
+  task_open_window: () => undefined,
   projects_list: ({ includeArchived }) => projectsList(!!includeArchived),
   project_create: ({ input }: Args) => {
     input = input as ProjectInput;

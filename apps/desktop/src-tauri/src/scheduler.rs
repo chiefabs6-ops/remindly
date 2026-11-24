@@ -282,7 +282,9 @@ pub struct PendingRoute(pub std::sync::Mutex<Option<String>>);
 fn open_at(app: &AppHandle, path: String) {
     let has_window = app.get_webview_window("main").is_some();
     if has_window {
-        let _ = app.emit(NAVIGATE, path);
+        // Aimed at the main window; pop-out task windows also skip the listener (Layout), since a
+        // JS listener without a target still receives events sent to another window.
+        let _ = app.emit_to("main", NAVIGATE, path);
     } else if let Some(p) = app.try_state::<PendingRoute>() {
         *p.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
     }

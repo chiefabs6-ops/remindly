@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
@@ -8,6 +8,11 @@ import { queryClient } from "../lib/queries";
 import { todayIso } from "../lib/format";
 
 beforeEach(() => {
+  // Fixed evening clock: the sample "09:00 today" task is already overdue, whatever time the suite runs.
+  const evening = new Date();
+  evening.setHours(20, 0, 0, 0);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(evening);
   resetMock();
   setBackend(mockInvoke);
   queryClient.clear();
@@ -19,6 +24,10 @@ beforeEach(() => {
     addEventListener: () => {},
     removeEventListener: () => {},
   })) as unknown as typeof window.matchMedia;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("Today", () => {
@@ -174,9 +183,9 @@ describe("Local AI", () => {
     await mockInvoke("ai_settings_set", { value: { enabled: true, url: "http://127.0.0.1:11434", model: "qwen2.5:1.5b" } });
     const user = userEvent.setup();
     const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
-    window.location.hash = `#/?task=${t.id}`;
+    window.location.hash = `#/task/${t.id}`;
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Break into steps with AI" }));
+    await user.click(await screen.findByRole("button", { name: /Break down/ }));
     await user.click(await screen.findByRole("checkbox", { name: "Check the full profile flow" }));
     await user.click(screen.getByRole("button", { name: "Add 2 subtasks" }));
     await waitFor(async () => {
@@ -188,8 +197,7 @@ describe("Local AI", () => {
 
 
 describe("Task page", () => {
-  it("opens a task as a readable page with where it came from, and Edit shows the form", async () => {
-    const user = userEvent.setup();
+  it("opens a task as a readable page with where it came from", async () => {
     const [s0] = await mockInvoke<{ id: string }[]>("suggestions_list", { status: "pending" });
     const r = await mockInvoke<{ id: string }>("suggestion_approve", { id: s0.id });
     window.location.hash = `#/task/${r.id}`;
@@ -197,9 +205,7 @@ describe("Task page", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Follow up about the updated teacher list" })).toBeInTheDocument();
     expect(screen.getByText(/Captured in Chrome/)).toBeInTheDocument();
     expect(screen.getByText(/“Follow up about the updated teacher list before Friday\.”/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Re: Teacher list/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    expect(await screen.findByLabelText("Title")).toHaveValue("Follow up about the updated teacher list");
+    expect(screen.getAllByRole("link", { name: /Re: Teacher list/ }).length).toBeGreaterThan(0);
   });
 
   it("shows captured text once when the description repeats it", async () => {
@@ -218,7 +224,7 @@ describe("Task page", () => {
     await mockInvoke("task_update", { id: t.id, input: { title: "Approve October expense claims", dueDate: todayIso(), dueTime: "09:00", priority: 2, tags: ["finance"] } });
     window.location.hash = `#/task/${t.id}`;
     render(<App />);
-    await user.selectOptions(await screen.findByLabelText("Priority"), "3");
+    await user.click(within(await screen.findByRole("group", { name: "Priority" })).getByRole("button", { name: "High" }));
     await waitFor(async () => {
       const d = await mockInvoke<{ priority: number; tags: string[]; dueTime: string; dueDate: string }>("task_get", { id: t.id });
       expect(d.priority).toBe(3);
@@ -245,20 +251,16 @@ describe("Task page", () => {
     await waitFor(() => expect(screen.getByLabelText("Tags")).toHaveValue("car, home"));
   });
 
-  it("a due date typed in the panel is saved once, on blur, keeping the time", async () => {
+  it("a date picked from the reschedule menu is saved, keeping the time", async () => {
     const user = userEvent.setup();
     const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Approve October expense claims" } });
     window.location.hash = `#/task/${t.id}`;
     render(<App />);
-    const due = await screen.findByLabelText("Due");
-    await user.clear(due);
-    let d = await mockInvoke<{ dueDate: string | null }>("task_get", { id: t.id });
-    expect(d.dueDate).toBe(todayIso());
-    await user.type(due, "2027-01-15");
-    await user.tab();
+    await user.click(await screen.findByRole("button", { name: /^Due:/ }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Reschedule" })).getByRole("button", { name: /^Next week/ }));
     await waitFor(async () => {
-      const x = await mockInvoke<{ dueDate: string; dueTime: string; history: { field: string | null }[] }>("task_get", { id: t.id });
-      expect(x.dueDate).toBe("2027-01-15");
+      const x = await mockInvoke<{ dueDate: string; dueTime: string }>("task_get", { id: t.id });
+      expect(x.dueDate).not.toBe(todayIso());
       expect(x.dueTime).toBe("09:00");
     });
   });
@@ -284,29 +286,12 @@ describe("Task page", () => {
     });
   });
 
-  it("tags changed in the Edit form show in the panel and are not saved back", async () => {
-    const user = userEvent.setup();
-    const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Draft newsletter intro" } });
-    window.location.hash = `#/task/${t.id}`;
-    render(<App />);
-    expect(await screen.findByLabelText("Tags")).toHaveValue("writing");
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const field = await screen.findByLabelText(/^Tags/);
-    await user.clear(field);
-    await user.type(field, "newsletter");
-    await user.click(screen.getByRole("button", { name: /^Save/ }));
-    await waitFor(() => expect(screen.getByLabelText("Tags")).toHaveValue("newsletter"));
-    await user.click(screen.getByLabelText("Tags"));
-    await user.tab();
-    const d = await mockInvoke<{ tags: string[] }>("task_get", { id: t.id });
-    expect(d.tags).toEqual(["newsletter"]);
-  });
-
-  it("old ?task= links land on the task page", async () => {
+  it("?task= links on My Tasks open the quick panel beside the list", async () => {
     const [t] = await mockInvoke<{ id: string }[]>("tasks_list", { filter: { query: "Book car service" } });
     window.location.hash = `#/tasks?task=${t.id}`;
     render(<App />);
-    expect(await screen.findByRole("heading", { level: 1, name: "Book car service" })).toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Task details" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "My Tasks" })).toBeInTheDocument();
   });
 });
 

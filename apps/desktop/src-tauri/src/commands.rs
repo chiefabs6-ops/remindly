@@ -10,11 +10,12 @@ use crate::{
     error::{AppError, AppResult},
     model::{
         Actor, Note, NoteFilter, NoteInput, Project, ProjectInput, Source, Suggestion,
-        SuggestionStatus, Tag, Task, TaskDetail, TaskFilter, TaskInput, TaskOrigin, TaskStatus,
+        SuggestionStatus, Tag, Task, TaskDetail, TaskFilter, TaskInput, TaskLink, TaskOrigin,
+        TaskStatus,
     },
     repo::{
         dashboard::{self, Clock, Dashboard},
-        notes, projects,
+        links, notes, projects,
         search::{self, SearchResults},
         settings,
         suggestions::{self, Approved},
@@ -98,6 +99,33 @@ pub fn task_delete(s: Db, id: String) -> AppResult<()> {
 #[tauri::command(async)]
 pub fn task_restore(s: Db, id: String) -> AppResult<Task> {
     s.db.write(|c| tasks::restore(c, &id, Actor::User))
+}
+
+#[tauri::command(async)]
+pub fn task_reorder(s: Db, ids: Vec<String>) -> AppResult<()> {
+    s.db.write(|c| tasks::reorder(c, &ids))
+}
+
+#[tauri::command(async)]
+pub fn task_link_add(s: Db, id: String, url: String, title: Option<String>) -> AppResult<TaskLink> {
+    s.db.write(|c| links::add(c, &id, &url, title.as_deref(), Actor::User))
+}
+
+#[tauri::command(async)]
+pub fn task_link_remove(s: Db, link_id: String) -> AppResult<()> {
+    s.db.write(|c| links::remove(c, &link_id, Actor::User))
+}
+
+#[tauri::command(async)]
+pub fn task_comment(s: Db, id: String, text: String) -> AppResult<()> {
+    s.db.write(|c| links::comment(c, &id, &text, Actor::User))
+}
+
+/// Pop a task out into its own window (one per task; focuses it if already open).
+#[tauri::command(async)]
+pub fn task_open_window(app: tauri::AppHandle, s: Db, id: String) -> AppResult<()> {
+    let task = s.db.read(|c| tasks::get(c, &id))?;
+    crate::open_task_window(&app, &task.id, &task.title)
 }
 
 // ---------- projects & tags ----------

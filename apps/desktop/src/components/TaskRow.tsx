@@ -1,9 +1,13 @@
-import { Bot, Globe, StickyNote } from "lucide-react";
-import type { Project, Task } from "@tether/core";
+import type { DragEvent } from "react";
+import { Bot, CalendarClock, Copy, Ellipsis, Flag, Globe, GripVertical, Maximize2, StickyNote, Trash2 } from "lucide-react";
+import { dayDiff, isoDate, PRIORITY_LABEL, relativeDayLabel, type Priority, type Project, type Task } from "@tether/core";
 import { api } from "../lib/api";
-import { dueLabel, dueTone } from "../lib/format";
+import { dueLabel, dueTone, todayIso } from "../lib/format";
 import { useAction } from "../lib/queries";
 import { toneStyle } from "../lib/colors";
+import { Check, ClaudeMark, PriorityBars, SubtaskRing } from "./ui/Bits";
+import { Popover, usePopover } from "./ui/Popover";
+import { ReschedulePopover } from "./ui/Reschedule";
 
 const PRIORITY_MARK: Record<number, string> = { 3: "High", 2: "Medium", 1: "Low" };
 
@@ -128,6 +132,135 @@ export function TaskList({
           columns={columns}
         />
       ))}
+    </div>
+  );
+}
+
+/* ===================== My Tasks row (mockup E) ===================== */
+
+/** Due cell text and tone: "Today 15:30", "Yesterday · 1d", "Sun 22 Nov · 2d". */
+export function rowDue(t: Task, today = todayIso()): { text: string; cls: "od" | "td" | "none" | ""; late?: number } {
+  if (t.status === "completed") {
+    return { text: t.completedAt ? `Done ${relativeDayLabel(isoDate(new Date(t.completedAt)), today)}` : "Done", cls: "" };
+  }
+  if (!t.dueDate) return { text: "No date", cls: "none" };
+  const diff = dayDiff(today, t.dueDate);
+  const time = t.dueTime ? ` ${t.dueTime}` : "";
+  const text = relativeDayLabel(t.dueDate, today) + time;
+  if (diff < 0) return { text, cls: "od", late: -diff };
+  if (diff === 0) return { text, cls: dueTone(t, today) === "overdue" ? "od" : "td" };
+  return { text, cls: "" };
+}
+
+export interface ListRowProps {
+  task: Task;
+  project?: Project;
+  /** Open in the side panel (this is the selected row). */
+  selected?: boolean;
+  /** Keyboard cursor is on this row. */
+  cursor?: boolean;
+  /** Hide the project chip (the list is grouped by, or scoped to, one project). */
+  hideProject?: boolean;
+  /** Drag handle is live (date grouping, not on the Completed tab). */
+  draggable?: boolean;
+  dropTarget?: boolean;
+  dragging?: boolean;
+  onOpen: (id: string) => void;
+  onToggle: (t: Task) => void;
+  onReschedule: (t: Task, date: string | null) => void;
+  onPriority: (t: Task, p: Priority) => void;
+  onFullPage: (id: string) => void;
+  onDuplicate: (t: Task) => void;
+  onDelete: (t: Task) => void;
+  onDragStart?: (e: DragEvent, id: string) => void;
+  onDragOver?: (e: DragEvent, id: string) => void;
+  onDrop?: (e: DragEvent, id: string) => void;
+  onDragEnd?: () => void;
+}
+
+/** One row of the My Tasks list: grip, check, title, marks, project, due, priority; actions on hover. */
+export function ListRow(p: ListRowProps) {
+  const { task: t, project } = p;
+  const resched = usePopover();
+  const prio = usePopover();
+  const more = usePopover();
+  const done = t.status === "completed";
+  const due = rowDue(t);
+  const hovOpen = !!(resched.anchor || prio.anchor || more.anchor);
+  const icon = { size: 15, strokeWidth: 1.6 };
+
+  return (
+    <div
+      role="listitem"
+      data-id={t.id}
+      data-kb={p.cursor ? "true" : undefined}
+      aria-current={p.selected ? "true" : undefined}
+      className={`trow ${done ? "done" : ""} ${p.selected ? "sel" : ""} ${p.cursor ? "kb" : ""} ${p.draggable ? "" : "nodrag"} ${p.hideProject ? "np" : ""} ${hovOpen ? "hov-open" : ""} ${p.dragging ? "dragging" : ""} ${p.dropTarget ? "over" : ""}`}
+      draggable={p.draggable || undefined}
+      onClick={(e) => {
+        // Portalled popovers bubble through React; only clicks on the row itself open it.
+        if (e.currentTarget.contains(e.target as Node) && !(e.target as HTMLElement).closest("button,a")) p.onOpen(t.id);
+      }}
+      onDragStart={(e) => p.onDragStart?.(e, t.id)}
+      onDragOver={(e) => p.onDragOver?.(e, t.id)}
+      onDrop={(e) => p.onDrop?.(e, t.id)}
+      onDragEnd={p.onDragEnd}
+    >
+      <span className="trow-grip" aria-hidden="true"><GripVertical size={12} strokeWidth={1.6} /></span>
+      <Check done={done} high={t.priority === 3} label={`${done ? "Reopen" : "Complete"} "${t.title}"`} onToggle={() => p.onToggle(t)} />
+      <button type="button" className="trow-tt" onClick={() => p.onOpen(t.id)}>
+        <span className="trow-name">{t.title}</span>
+      </button>
+      <div className="trow-meta">
+        <span className="trow-marks">
+          {t.subtaskCount > 0 && <span className="trow-mk"><SubtaskRing done={t.subtaskDone} total={t.subtaskCount} /></span>}
+          {t.source === "claude" && <span className="trow-mk"><ClaudeMark label="Suggested by Claude, approved by you" /></span>}
+          {t.source === "chrome" && <span className="trow-mk" title="Captured in Chrome"><Globe size={12} strokeWidth={1.6} aria-label="Captured in Chrome" /></span>}
+        </span>
+        <span className="trow-pcell">
+          {!p.hideProject && project && <span className="chip" style={toneStyle(project.color)} title={project.name}>{project.name}</span>}
+        </span>
+        <span className={`trow-due num ${due.cls}`}>
+          {due.text}
+          {due.late ? <span className="late"> · {due.late}d</span> : null}
+        </span>
+      </div>
+      <span className="trow-pri"><PriorityBars priority={t.priority} /></span>
+      {!done && (
+        <span className="trow-hov">
+          <button type="button" aria-label="Reschedule" title="Reschedule" onClick={(e) => resched.open(e.currentTarget)}><CalendarClock {...icon} /></button>
+          <button type="button" aria-label="Set priority" title="Priority (0-3)" onClick={(e) => prio.open(e.currentTarget)}><Flag {...icon} /></button>
+          <button type="button" aria-label="More actions" title="More" onClick={(e) => more.open(e.currentTarget)}><Ellipsis {...icon} /></button>
+        </span>
+      )}
+      {resched.anchor && (
+        <ReschedulePopover anchor={resched.anchor} value={t.dueDate} onClose={resched.close} onPick={(d) => p.onReschedule(t, d)} />
+      )}
+      {prio.anchor && (
+        <Popover anchor={prio.anchor} onClose={prio.close} label="Priority" role="menu">
+          {([3, 2, 1, 0] as Priority[]).map((n) => (
+            <button key={n} type="button" role="menuitemradio" aria-checked={t.priority === n} className="pop-item"
+              onClick={() => { prio.close(); p.onPriority(t, n); }}>
+              <span className={`pri pri-${n}`} aria-hidden="true"><i /><i /><i /></span>
+              {PRIORITY_LABEL[n]}<small>{n}</small>
+            </button>
+          ))}
+        </Popover>
+      )}
+      {more.anchor && (
+        <Popover anchor={more.anchor} onClose={more.close} label="More actions" role="menu">
+          <button type="button" role="menuitem" className="pop-item" onClick={() => { more.close(); p.onFullPage(t.id); }}>
+            <Maximize2 {...icon} />Open full page<small>O</small>
+          </button>
+          <button type="button" role="menuitem" className="pop-item" onClick={() => { more.close(); p.onDuplicate(t); }}>
+            <Copy {...icon} />Duplicate
+          </button>
+          <hr className="pop-sep" />
+          <button type="button" role="menuitem" className="pop-item danger" onClick={() => { more.close(); p.onDelete(t); }}>
+            <Trash2 {...icon} />Delete
+          </button>
+        </Popover>
+      )}
     </div>
   );
 }

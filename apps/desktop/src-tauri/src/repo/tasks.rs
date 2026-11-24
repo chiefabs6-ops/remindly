@@ -6,7 +6,7 @@ use crate::{
         Actor, Source, Task, TaskDetail, TaskFilter, TaskInput, TaskOrigin, TaskStatus, clean_date,
         clean_priority, clean_text, clean_time, clean_title, new_id, now_utc,
     },
-    repo::{history, search, tags},
+    repo::{history, links, search, tags},
 };
 
 pub(crate) const COLS: &str = "t.id, t.parent_id, t.project_id, t.title, t.description, t.notes,
@@ -115,11 +115,28 @@ pub fn detail(conn: &Connection, id: &str) -> AppResult<TaskDetail> {
         },
     )?;
     let history = history::list(conn, id)?;
+    let links = links::list(conn, id)?;
     Ok(TaskDetail {
         task,
         subtasks,
         history,
+        links,
     })
+}
+
+/// Manual order from drag and drop: `ids` in their new order. The list still sorts by due date
+/// first, so the UI only reorders tasks that share a date group.
+pub fn reorder(conn: &Connection, ids: &[String]) -> AppResult<()> {
+    for (i, id) in ids.iter().enumerate() {
+        let n = conn.execute(
+            "UPDATE tasks SET sort_order = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+            params![id, i as f64],
+        )?;
+        if n == 0 {
+            return Err(AppError::NotFound("task".into()));
+        }
+    }
+    Ok(())
 }
 
 pub fn create(
@@ -838,5 +855,20 @@ mod tests {
         };
         assert_eq!(find("Alpha"), 0);
         assert_eq!(find("Bravo"), 1);
+    }
+
+    #[test]
+    fn reorder_sets_manual_order_and_rejects_unknown_ids() {
+        let db = db();
+        let a = mk(&db, "A");
+        let b = mk(&db, "B");
+        db.write(|c| reorder(c, &[b.id.clone(), a.id.clone()]))
+            .unwrap();
+        let ta = db.read(|c| get(c, &a.id)).unwrap();
+        let tb = db.read(|c| get(c, &b.id)).unwrap();
+        assert!(tb.sort_order < ta.sort_order);
+        assert!(db.write(|c| reorder(c, &["nope".into()])).is_err());
+        let d = db.read(|c| detail(c, &a.id)).unwrap();
+        assert!(d.links.is_empty());
     }
 }

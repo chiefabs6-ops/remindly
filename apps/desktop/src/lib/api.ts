@@ -17,6 +17,7 @@ import type {
   Tag,
   Task,
   TaskDetail,
+  TaskLink,
   TaskFilter,
   TaskInput,
   TaskStatus,
@@ -143,6 +144,12 @@ export const api = {
   duplicate: (id: string) => call<Task>("task_duplicate", { id }),
   deleteTask: (id: string) => call<void>("task_delete", { id }),
   restoreTask: (id: string) => call<Task>("task_restore", { id }),
+  reorderTasks: (ids: string[]) => call<void>("task_reorder", { ids }),
+  addLink: (id: string, url: string, title?: string | null) =>
+    call<TaskLink>("task_link_add", { id, url, title: title ?? null }),
+  removeLink: (linkId: string) => call<void>("task_link_remove", { linkId }),
+  addComment: (id: string, text: string) => call<void>("task_comment", { id, text }),
+  openTaskWindow: (id: string) => call<void>("task_open_window", { id }),
 
   projects: (includeArchived = false) => call<Project[]>("projects_list", { includeArchived }),
   createProject: (input: ProjectInput) => call<Project>("project_create", { input }),
