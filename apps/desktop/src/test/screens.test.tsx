@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
@@ -8,6 +8,11 @@ import { queryClient } from "../lib/queries";
 import { todayIso } from "../lib/format";
 
 beforeEach(() => {
+  // Fixed evening clock: the sample "09:00 today" task is already overdue, whatever time the suite runs.
+  const evening = new Date();
+  evening.setHours(20, 0, 0, 0);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(evening);
   resetMock();
   setBackend(mockInvoke);
   queryClient.clear();
@@ -19,6 +24,10 @@ beforeEach(() => {
     addEventListener: () => {},
     removeEventListener: () => {},
   })) as unknown as typeof window.matchMedia;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("Today", () => {

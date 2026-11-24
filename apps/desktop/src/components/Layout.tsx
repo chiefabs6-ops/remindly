@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { CalendarCheck, ClipboardCheck, FolderKanban, ListTodo, Moon, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
+import type { TaskStatus } from "@tether/core";
 import { api, onNavigate } from "../lib/api";
 import { toneDot } from "../lib/colors";
-import { useAction, useBackendSync, useDashboard, useProjects, useSettings } from "../lib/queries";
+import { useAction, useBackendSync, useDashboard, useProjects, useSettings, useTasks } from "../lib/queries";
+import { ToastProvider } from "./ui/Toast";
 
-function NavItem({ to, icon, label, count }: { to: string; icon: ReactNode; label: string; count?: number }) {
+function NavItem({ to, icon, label, count, plainCount }: { to: string; icon: ReactNode; label: string; count?: number; plainCount?: number }) {
   return (
     <NavLink
       to={to}
@@ -17,6 +19,7 @@ function NavItem({ to, icon, label, count }: { to: string; icon: ReactNode; labe
       {icon}
       <span className="flex-1 truncate">{label}</span>
       {!!count && <span className="num rounded-full bg-[var(--pill-today-bg)] px-1.5 text-xs text-[var(--pill-today-ink)]" aria-label={`${count} waiting for approval`}>{count}</span>}
+      {!!plainCount && <span className="num text-xs text-faint" aria-label={`${plainCount} open`}>{plainCount}</span>}
     </NavLink>
   );
 }
@@ -45,6 +48,9 @@ export function useTheme() {
   return theme;
 }
 
+/** Top-level tasks that are still to do; matches the "All open" tab in My Tasks. */
+const OPEN_FILTER = { statuses: ["inbox", "not_started", "in_progress", "waiting"] as TaskStatus[], topLevelOnly: true };
+
 export function Layout() {
   useBackendSync();
   const theme = useTheme();
@@ -55,6 +61,8 @@ export function Layout() {
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const pending = dash.data?.pending.reduce((n, p) => n + p.count, 0) ?? 0;
+  const openTasks = useTasks(OPEN_FILTER);
+  const openCount = openTasks.data?.length;
 
   // Notification buttons ask the app to open a screen.
   useEffect(() => {
@@ -93,7 +101,7 @@ export function Layout() {
           <Mark /> Tether
         </div>
         <NavItem to="/" icon={<CalendarCheck {...icon} />} label="Today" count={pending} />
-        <NavItem to="/tasks" icon={<ListTodo {...icon} />} label="All tasks" />
+        <NavItem to="/tasks" icon={<ListTodo {...icon} />} label="My Tasks" plainCount={openCount} />
         <NavItem to="/notes" icon={<NotebookPen {...icon} />} label="Notes" />
         <NavItem to="/review" icon={<ClipboardCheck {...icon} />} label="Review" />
 
@@ -147,15 +155,17 @@ export function Layout() {
       </div>
 
       {/* The sheet: where the work sits. */}
-      <main className="mr-2 mb-2 min-w-0 overflow-y-auto rounded-[16px] border border-line bg-surface max-lg:m-0 max-lg:rounded-none max-lg:border-x-0">
-        <Outlet />
+      <main className="mr-2 mb-2 min-w-0 overflow-y-auto rounded-[14px] border border-line bg-surface shadow-[var(--sheet-light)] max-lg:m-0 max-lg:rounded-none max-lg:border-x-0">
+        <ToastProvider>
+          <Outlet />
+        </ToastProvider>
       </main>
 
       {/* Phone/tablet: the sidebar folds into a bottom bar. */}
       <nav aria-label="Main" className="flex h-14 border-t border-line bg-surface lg:hidden">
         {[
           ["/", "Today", <CalendarCheck {...icon} />],
-          ["/tasks", "Tasks", <ListTodo {...icon} />],
+          ["/tasks", "My Tasks", <ListTodo {...icon} />],
           ["/notes", "Notes", <NotebookPen {...icon} />],
           ["/settings", "Settings", <Settings {...icon} />],
         ].map(([to, label, ic]) => (

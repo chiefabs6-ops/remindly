@@ -26,6 +26,13 @@
   --today: #1b6c80;
   --positive: #1e7b4f;
   --negative: #c4242a;
+  --hover: #f6f8f9;
+  --warn: #b45309;
+  --claude: #9a5b34;
+  --sheet-light: none;
+  --float-shadow: 0 12px 32px rgba(15, 23, 32, 0.14);
+  --pill-positive-bg: #dcfae5;
+  --pill-positive-ink: #04250e;
   --pill-neutral-bg: #ebedee;
   --pill-neutral-ink: #353736;
   --pill-negative-bg: #ffedea;
@@ -45,35 +52,43 @@
 }
 
 :root[data-theme="dark"] {
-  --ground: #0b0c0d;
-  --surface: #131415;
-  --raised: #1a1c1e;
-  --active: #25282b;
-  --border: #26292c;
-  --rule: #1c1e20;
-  --control: #3e4246;
-  --text: #f2f3f4;
-  --muted: #b0b4b8;
-  --faint: #8f9498;
-  --primary: #f2f3f4;
-  --primary-ink: #0b0c0d;
+  /* Mockup E: cool charcoal (a slight blue lean, not navy). Depth = one tone step per layer. */
+  --ground: #0a0c0f;
+  --surface: #111418;
+  --raised: #171b20;
+  --hover: #151920;
+  --active: #1f242b;
+  --border: #232830;
+  --rule: #1a1e24;
+  --control: #353c46;
+  --text: #eef1f4;
+  --muted: #aab2bc;
+  --faint: #8b939d;
+  --primary: #eef1f4;
+  --primary-ink: #0a0c0f;
   --today: #5fb3c9;
-  --positive: #3fc07a;
-  --negative: #e5566f;
-  --pill-neutral-bg: #25282b;
-  --pill-neutral-ink: #d4d6d8;
-  --pill-negative-bg: #2c1a20;
-  --pill-negative-ink: #f08a9b;
-  --pill-today-bg: #12282e;
+  --positive: #4cc489;
+  --negative: #ec6a80;
+  --warn: #f0b45e;
+  --claude: #d9a27c;
+  --sheet-light: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --float-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --pill-neutral-bg: #1f242b;
+  --pill-neutral-ink: #c9d0d8;
+  --pill-negative-bg: #2c1820;
+  --pill-negative-ink: #f39aaa;
+  --pill-today-bg: #12272e;
   --pill-today-ink: #9fd6e3;
-  --pill-warning-bg: #2a2110;
-  --pill-warning-ink: #f0c36d;
-  --tone-blue-bg: #14243a; --tone-blue-ink: #a8c8f5;
-  --tone-amber-bg: #2d2111; --tone-amber-ink: #f0c36d;
-  --tone-green-bg: #16291d; --tone-green-ink: #9fd9b3;
-  --tone-teal-bg: #10292a; --tone-teal-ink: #8fd9d2;
-  --tone-rose-bg: #2e1520; --tone-rose-ink: #f3a6bb;
-  --tone-slate-bg: #1f2630; --tone-slate-ink: #c5cfdb;
+  --pill-warning-bg: #2a2012;
+  --pill-warning-ink: #f3c98a;
+  --pill-positive-bg: #14271d;
+  --pill-positive-ink: #7fd9a8;
+  --tone-blue-bg: #15233a; --tone-blue-ink: #a8c8f5;
+  --tone-amber-bg: #2a2012; --tone-amber-ink: #f0c36d;
+  --tone-green-bg: #15281d; --tone-green-ink: #9fd9b3;
+  --tone-teal-bg: #10282a; --tone-teal-ink: #8fd9d2;
+  --tone-rose-bg: #2c1520; --tone-rose-ink: #f3a6bb;
+  --tone-slate-bg: #1d2430; --tone-slate-ink: #c5cfdb;
   --tone-stone-bg: #29241c; --tone-stone-ink: #d9ccb6;
   color-scheme: dark;
 }
@@ -95,6 +110,9 @@
   --color-today: var(--today);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
+  --color-hover: var(--hover);
+  --color-warn: var(--warn);
+  --color-claude: var(--claude);
   --radius-card: 8px;
   --radius-sheet: 16px;
   --radius-control: 6px;
@@ -223,4 +241,81 @@ textarea.field {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+}
+
+/* ===================== Mockup E: shared parts (see docs/mockups/e-my-tasks.html) ===================== */
+@layer components {
+.btn-sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.btn-icon { width: 32px; padding: 0; justify-content: center; }
+.btn-sm.btn-icon { width: 28px; }
+.pill-positive { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+kbd { font: 500 11px var(--font-sans); color: var(--faint); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; background: var(--raised); }
+
+/* Priority: three rising bars; High is amber. */
+.pri { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex: none; }
+.pri i { width: 3px; border-radius: 1px; background: var(--control); }
+.pri i:nth-child(1) { height: 5px; } .pri i:nth-child(2) { height: 8px; } .pri i:nth-child(3) { height: 11px; }
+.pri-1 i:nth-child(1), .pri-2 i:nth-child(-n + 2) { background: var(--muted); }
+.pri-3 i { background: var(--warn); }
+
+/* Round completion check. */
+.ck { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1.5px solid var(--control); display: grid; place-items: center; background: transparent; cursor: pointer; transition: border-color 120ms, background-color 120ms; }
+.ck:hover { border-color: var(--muted); }
+.ck svg { opacity: 0; width: 11px; height: 11px; stroke: var(--primary-ink); stroke-width: 2.6; fill: none; }
+.ck:hover svg { opacity: 0.35; stroke: var(--muted); }
+.ck-high { border-color: var(--warn); }
+.ck-on, .ck-on:hover { background: var(--muted); border-color: var(--muted); }
+.ck-on svg, .ck-on:hover svg { opacity: 1; stroke: var(--surface); }
+.ck:disabled { cursor: progress; }
+
+/* Underline tabs with counts. */
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.tab { position: relative; display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 12px; color: var(--muted); font-size: 13px; font-weight: 500; white-space: nowrap; background: none; border: 0; cursor: pointer; }
+.tab:hover { color: var(--text); }
+.tab .n { font-size: 12px; color: var(--faint); font-weight: 400; }
+.tab .n.neg { color: var(--negative); }
+.tab[aria-selected="true"] { color: var(--text); }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--text); }
+
+/* Segmented control. */
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 7px; border: 1px solid var(--border); background: var(--raised); }
+.seg button { height: 24px; padding: 0 9px; border-radius: 5px; font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; background: none; border: 0; cursor: pointer; }
+.seg button:hover { color: var(--text); }
+.seg button[aria-pressed="true"] { background: var(--active); color: var(--text); font-weight: 500; }
+
+/* Switch. */
+.toggle { width: 30px; height: 18px; border-radius: 9px; background: var(--control); position: relative; flex: none; border: 0; cursor: pointer; transition: background-color 150ms; }
+.toggle::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); transition: transform 150ms; }
+.toggle[aria-checked="true"] { background: var(--today); }
+.toggle[aria-checked="true"]::after { transform: translateX(12px); }
+
+/* Popovers and menus: the only floating things, so the only shadows. */
+.pop { position: fixed; z-index: 50; min-width: 220px; max-width: calc(100vw - 16px); padding: 6px; border-radius: 10px; border: 1px solid var(--control); background: var(--raised); box-shadow: var(--float-shadow); animation: pop-in 120ms ease-out; }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.pop-item { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border-radius: 6px; font-size: 13px; text-align: left; color: var(--text); background: none; border: 0; cursor: pointer; text-decoration: none; }
+.pop-item:hover, .pop-item:focus-visible, .pop-item[aria-checked="true"] { background: var(--active); outline: none; }
+.pop-item small { margin-left: auto; color: var(--faint); font-size: 12px; }
+.pop-item.danger { color: var(--negative); }
+.pop-sep { border: 0; border-top: 1px solid var(--border); margin: 6px 2px; }
+
+/* Mini month calendar inside the reschedule popover. */
+.mcal { padding: 4px 6px 6px; }
+.mcal-h { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 6px; font-size: 12.5px; font-weight: 500; }
+.mcal-g { display: grid; grid-template-columns: repeat(7, 30px); gap: 1px; text-align: center; font-size: 12px; }
+.mcal-g span { height: 22px; line-height: 22px; color: var(--faint); }
+.mcal-g button { height: 28px; border-radius: 6px; background: none; border: 0; color: var(--text); cursor: pointer; }
+.mcal-g button:hover { background: var(--active); }
+.mcal-g .past { color: var(--faint); }
+.mcal-g .is-today { color: var(--today); font-weight: 600; }
+.mcal-g .is-current { background: var(--text); color: var(--primary-ink); font-weight: 600; }
+
+/* Toast with Undo. */
+.toast { position: fixed; left: 50%; bottom: 24px; z-index: 60; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; height: 42px; max-width: calc(100% - 32px); padding: 0 8px 0 14px; border-radius: 10px; border: 1px solid var(--control); background: var(--raised); box-shadow: var(--float-shadow); font-size: 13px; white-space: nowrap; animation: toast-in 180ms ease-out; }
+.toast span { overflow: hidden; text-overflow: ellipsis; }
+.toast button { height: 28px; padding: 0 8px; border-radius: 6px; font-weight: 500; color: var(--today); background: none; border: 0; cursor: pointer; }
+.toast button:hover { background: var(--active); }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* Small Claude mark: warm clay, used only on the 12px spark. */
+.claude-mark { color: var(--claude); display: inline-flex; }
 }
