@@ -142,7 +142,7 @@
 @media (max-width: 1023px) {
   .tp-head { padding: 20px 20px 0; }
   .tp-main { padding: 8px 20px 40px; }
-  .tp-side { margin: 16px 20px 0; }
+  .tp-side { margin: 16px 20px 24px 0; }
 }
 @media (max-width: 720px) {
   .tp-bar .acts .hide-m, .tp-bar .crumbs { display: none; }

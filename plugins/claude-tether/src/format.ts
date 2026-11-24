@@ -17,8 +17,8 @@ const ORDER = ["said", "meeting", "quote", "completed", "remaining", "why", "res
 
 const asText = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : "");
 
-/** "Handover from Claude" block: what the user said, what is done, what is left and where to resume. */
-export function contextText(ctx: ClaudeContext): string {
+/** "Handover from Claude" (or "from local AI") block: what the user said, what is done, what is left and where to resume. */
+export function contextText(ctx: ClaudeContext, who = "Claude"): string {
   if (!ctx || typeof ctx !== "object") return "";
   const keys = [...ORDER.filter((k) => k in ctx), ...Object.keys(ctx).filter((k) => !ORDER.includes(k))];
   const out: string[] = [];
@@ -37,5 +37,5 @@ export function contextText(ctx: ClaudeContext): string {
       out.push(k === "said" ? `${label}: "${asText(v)}"` : `${label}: ${asText(v)}`);
     }
   }
-  return out.length ? `\nHandover from Claude:\n${out.join("\n")}` : "";
+  return out.length ? `\nHandover from ${who}:\n${out.join("\n")}` : "";
 }

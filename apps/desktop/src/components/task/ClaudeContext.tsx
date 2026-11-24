@@ -3,7 +3,7 @@ import { Globe } from "lucide-react";
 import type { TaskDetail } from "@tether/core";
 import { hostOf } from "../../lib/format";
 import { ClaudeMark } from "../ui/Bits";
-import { contextParts, openExternal, parseContext, type CtxPart } from "./model";
+import { contextParts, openExternal, parseContext, same, type CtxPart } from "./model";
 
 const RESUME = /resume|pick|continue|where/i;
 const META = /^(repository|branch)$/i;
@@ -53,6 +53,9 @@ export function ClaudeContext({ t, full }: { t: TaskDetail; full?: boolean }) {
 /** Text captured from a web page, with a link back to it. Page only. */
 export function CapturedText({ t }: { t: TaskDetail }) {
   if (!t.sourceSelection) return null;
+  // A meeting task already shows this line under "Said in the meeting".
+  const quote = t.claudeContext && typeof t.claudeContext.quote === "string" ? t.claudeContext.quote : null;
+  if (quote && same(quote, t.sourceSelection)) return null;
   return (
     <section className="sec" aria-label="Captured text">
       <div className="sec-h"><Globe size={14} strokeWidth={1.6} />Captured text</div>

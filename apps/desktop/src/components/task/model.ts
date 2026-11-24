@@ -81,7 +81,7 @@ export function contextParts(ctx: Record<string, unknown> | null | undefined): {
     const label = LABELS[k] ?? k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()).trim();
     if (k === "meeting") {
       // From a meeting summary: link back to the meeting note.
-      if (meeting) parts.push({ label: "From the meeting", text: asText(meeting.title) || "Meeting", link: asText(meeting.noteId) ? `/notes?note=${asText(meeting.noteId)}` : undefined });
+      if (meeting) parts.push({ label: "From the meeting", text: asText(meeting.title) || "Meeting", link: asText(meeting.noteId) ? `/notes?note=${encodeURIComponent(asText(meeting.noteId))}` : undefined });
       continue;
     }
     if (Array.isArray(v)) {

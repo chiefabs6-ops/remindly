@@ -34522,7 +34522,7 @@ var LABELS = {
 };
 var ORDER = ["said", "meeting", "quote", "completed", "remaining", "why", "resumeHint", "repository", "branch"];
 var asText = (v) => typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : "";
-function contextText(ctx) {
+function contextText(ctx, who = "Claude") {
   if (!ctx || typeof ctx !== "object") return "";
   const keys = [...ORDER.filter((k) => k in ctx), ...Object.keys(ctx).filter((k) => !ORDER.includes(k))];
   const out = [];
@@ -34543,7 +34543,7 @@ ${items.map((i) => `- ${i}`).join("\n")}`);
     }
   }
   return out.length ? `
-Handover from Claude:
+Handover from ${who}:
 ${out.join("\n")}` : "";
 }
 
@@ -34786,7 +34786,7 @@ function createServer() {
             t.description ? `
 Description:
 ${t.description}` : "",
-            contextText(t.claudeContext),
+            contextText(t.claudeContext, t.source === "ai" ? "local AI" : "Claude"),
             t.notes ? `
 Notes:
 ${t.notes}` : "",

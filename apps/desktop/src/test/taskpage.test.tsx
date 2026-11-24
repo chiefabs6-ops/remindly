@@ -44,9 +44,9 @@ describe("Full task page", () => {
     const id = await taskId("Renew domain for portfolio site");
     window.location.hash = `#/task/${id}`;
     render(<App />);
-    expect(await screen.findByRole("button", { name: /Add time/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Add due time" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Due time")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Add time/ }));
+    await user.click(screen.getByRole("button", { name: "Add due time" }));
     const time = await screen.findByLabelText("Due time");
     await user.type(time, "14:30");
     await user.tab();
@@ -62,7 +62,9 @@ describe("Full task page", () => {
     // A local-AI suggestion from a meeting summary.
     const base = sampleStore();
     const claude = base.suggestions.find((x) => x.origin === "claude")!;
+    // Same shape as the meeting worker writes: the quote is also the captured text.
     const fromMeeting = { ...claude, id: "sug-meeting", origin: "ai" as const,
+      payload: { ...(claude.payload as object), sourceSelection: "I'll send it Friday", sourceTitle: "PBL trainers meeting", sourceUrl: "https://meet.google.com/abc-defg-hij" },
       context: { meeting: { meetingId: "m1", noteId: "note-1", title: "PBL trainers meeting" }, quote: "I'll send it Friday" } };
     resetMock({ suggestions: [fromMeeting] });
     const r = await mockInvoke<{ id: string }>("suggestion_approve", { id: "sug-meeting" });
@@ -71,6 +73,9 @@ describe("Full task page", () => {
     const ctx = await screen.findByRole("region", { name: "Context from local AI" });
     expect(within(ctx).getByRole("link", { name: "PBL trainers meeting" })).toHaveAttribute("href", "#/notes?note=note-1");
     expect(within(ctx).getByText("Said in the meeting")).toBeInTheDocument();
+    // The quote is shown once, not again as "Captured text".
+    expect(screen.queryByRole("region", { name: "Captured text" })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/I'll send it Friday/)).toHaveLength(1);
     expect((await mockInvoke<{ notes: string | null }>("task_get", { id: r.id })).notes).toBeNull();
   });
 

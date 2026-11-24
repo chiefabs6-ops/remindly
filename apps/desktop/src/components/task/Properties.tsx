@@ -43,9 +43,9 @@ export function Properties({ t, ed, full }: { t: TaskDetail; ed: TaskEdit; full?
         {late > 0 && <span className="pill pill-negative">{late} {late === 1 ? "day" : "days"} late</span>}
         {t.dueDate && (t.dueTime || addingTime ? (
           <CommitInput type="time" className="tinput" aria-label="Due time" value={t.dueTime ?? ""} autoFocus={addingTime && !t.dueTime}
-            onCommit={(v) => ed.patch.mutate({ dueTime: v || null })} onSettle={() => setAddingTime(false)} />
+            onCommit={(v) => ed.patch.mutate({ dueTime: v || null })} onSettle={(v) => { if (!v) setAddingTime(false); }} />
         ) : (
-          <button type="button" className="val muted" onClick={() => setAddingTime(true)}><Clock size={13} strokeWidth={1.6} />Add time</button>
+          <button type="button" className="val muted" aria-label="Add due time" onClick={() => setAddingTime(true)}><Clock size={13} strokeWidth={1.6} />Add time</button>
         ))}
         {due.anchor && <ReschedulePopover anchor={due.anchor} value={t.dueDate} onPick={ed.reschedule} onClose={due.close} />}
       </dd>
